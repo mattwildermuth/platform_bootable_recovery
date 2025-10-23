@@ -19,6 +19,8 @@
 #include <string>
 
 #include <fstab/fstab.h>
+#include "../../../recovery_ui/include/recovery_ui/device.h"
+#include "../../../recovery_ui/include/recovery_ui/ui.h"
 
 using Volume = android::fs_mgr::FstabEntry;
 
@@ -42,6 +44,10 @@ int ensure_path_mounted_at(const std::string& path, const std::string& mount_poi
 // Make sure that the volume 'path' is on is unmounted.  Returns 0 on
 // success (volume is unmounted);
 int ensure_path_unmounted(const std::string& path);
+
+// Run fsck.f2fs on the user data parition to verify its behavior and
+// integrity of the parition
+int check_usr_partition(Device* device);
 
 // Reformat the given volume (must be the mount point only, eg
 // "/cache"), no paths permitted.  Attempts to unmount the volume if
