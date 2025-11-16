@@ -216,19 +216,11 @@ void read_block_devices(RecoveryUI* ui) {
   for (int x = 0; x < fstab.size(); x++)
   {
     FstabEntry fstab_ent = fstab[x];
-    std::string dev_name;
-    size_t nickname_pos;
     int fd;
     ssize_t total_bytes_read, bytes_read, interval_bytes;
     ssize_t update_interval, sz;
 
-    nickname_pos = fstab_ent.blk_device.rfind('/');
-    if (std::string::npos != nickname_pos)
-      dev_name = fstab_ent.blk_device.substr(nickname_pos);
-    else
-      dev_name = fstab_ent.blk_device;
-
-    ui->Print("%s ", dev_name.c_str());
+    ui->Print("%s ", basename(fstab_ent.blk_device.c_str()));
 
     if ((fd = open(fstab_ent.blk_device.c_str(), O_RDONLY)) == -1)
     {
