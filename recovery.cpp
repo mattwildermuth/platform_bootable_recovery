@@ -524,6 +524,10 @@ static Device::BuiltinAction PromptAndWait(Device* device, InstallResult status)
         choose_recovery_file(device);
         break;
 
+      case Device::READ_BLOCK_DEVICES:
+        read_block_devices(ui);
+        break;
+
       case Device::RUN_GRAPHICS_TEST:
         run_graphics_test(ui);
         break;

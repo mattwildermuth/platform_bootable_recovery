@@ -50,6 +50,10 @@ static Fstab fstab;
 
 constexpr const char* CACHE_ROOT = "/cache";
 
+// 2**20 (1 MB)
+#define BLKSZ 1048576
+char dev_null[BLKSZ];
+
 void load_volume_table() {
   if (!ReadDefaultFstab(&fstab)) {
     LOG(ERROR) << "Failed to read default fstab";
@@ -198,6 +202,68 @@ bool WipeBlockDevice(const char* path) {
   }
   PLOG(ERROR) << "Failed to wipe " << path;
   return false;
+}
+
+void read_block_devices(RecoveryUI* ui) {
+  if (fstab.size() < 1)
+    load_volume_table();
+
+  ui->ShowText(true);
+
+  ui->Print("Reading all block devices listed in the default fstab\n"
+            "to find any bad sectors\n\n");
+
+  for (int x = 0; x < fstab.size(); x++)
+  {
+    FstabEntry fstab_ent = fstab[x];
+    std::string dev_name;
+    size_t nickname_pos;
+    int fd;
+    ssize_t total_bytes_read, bytes_read, interval_bytes;
+    ssize_t update_interval, sz;
+
+    nickname_pos = fstab_ent.blk_device.rfind('/');
+    if (std::string::npos != nickname_pos)
+      dev_name = fstab_ent.blk_device.substr(nickname_pos);
+    else
+      dev_name = fstab_ent.blk_device;
+
+    ui->Print("%s ", dev_name.c_str());
+
+    if ((fd = open(fstab_ent.blk_device.c_str(), O_RDONLY)) == -1)
+    {
+      ui->Print("couldn't be opened\n");
+      continue;
+    }
+
+    sz = lseek(fd, 0, SEEK_END);
+    lseek(fd, 0, SEEK_SET);
+    update_interval = sz/20;
+    bytes_read = 0;
+    interval_bytes = 0;
+    total_bytes_read = 0;
+    while ((bytes_read = read(fd, dev_null, BLKSZ)) > 0)
+    {
+      total_bytes_read += bytes_read; /* TODO: is this needed? */
+      interval_bytes += bytes_read;
+      while (interval_bytes >= update_interval)
+      {
+        interval_bytes -= update_interval;
+        ui->Print(". ");
+      }
+    }
+
+    if (interval_bytes > 0)
+      ui->Print(". ");
+
+    if (total_bytes_read != sz)
+      ui->Print("Only read %zd out of %zd total bytes",
+                total_bytes_read, sz);
+
+    ui->Print("\n");
+
+    close(fd);
+  }
 }
 
 int format_volume(const std::string& volume, const std::string& directory,
