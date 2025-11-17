@@ -208,8 +208,6 @@ void read_block_devices(RecoveryUI* ui) {
   DIR* dir;
   struct dirent* dirent;
   std::string dev_dir = "/dev/block/by-name/";
-  std::string this_dir = ".";
-  std::string prev_dir = "..";
 
   if (fstab.size() < 1)
     load_volume_table();
@@ -231,13 +229,13 @@ void read_block_devices(RecoveryUI* ui) {
     ssize_t total_bytes_read, bytes_read, interval_bytes;
     ssize_t update_interval, sz;
 
-    std::string dev_name = dirent->d_name;
     std::string full_path = dev_dir + "/" + dirent->d_name;
 
-    ui->Print("%s ", basename(dirent->d_name));
-
-    if (!dev_name.compare(this_dir) || !dev_name.compare(prev_dir))
+    /* TODO: update this check to include check of file at the link */
+    if (dirent->d_type != DT_BLK && dirent->d_type != DT_LNK)
       continue;
+
+    ui->Print("%s ", basename(dirent->d_name));
 
     if ((fd = open(full_path.c_str(), O_RDONLY)) == -1)
     {
