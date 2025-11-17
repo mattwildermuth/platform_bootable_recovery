@@ -205,24 +205,41 @@ bool WipeBlockDevice(const char* path) {
 }
 
 void read_block_devices(RecoveryUI* ui) {
+  DIR* dir;
+  struct dirent* dirent;
+  std::string dev_dir = "/dev/block/by-name/";
+  std::string this_dir = ".";
+  std::string prev_dir = "..";
+
   if (fstab.size() < 1)
     load_volume_table();
 
   ui->ShowText(true);
 
-  ui->Print("Reading all block devices listed in the default fstab\n"
-            "to find any bad sectors\n\n");
+  ui->Print("Reading all block devices listed in %s\n"
+            "to find any bad sectors\n\n", dev_dir.c_str());
 
-  for (int x = 0; x < fstab.size(); x++)
+  if (!(dir = opendir(dev_dir.c_str())))
   {
-    FstabEntry fstab_ent = fstab[x];
+    ui->Print("Could not read from the %s directory\n", dev_dir.c_str());
+    return;
+  }
+
+  while ((dirent = readdir(dir)))
+  {
     int fd;
     ssize_t total_bytes_read, bytes_read, interval_bytes;
     ssize_t update_interval, sz;
 
-    ui->Print("%s ", basename(fstab_ent.blk_device.c_str()));
+    std::string dev_name = dirent->d_name;
+    std::string full_path = dev_dir + "/" + dirent->d_name;
 
-    if ((fd = open(fstab_ent.blk_device.c_str(), O_RDONLY)) == -1)
+    ui->Print("%s ", basename(dirent->d_name));
+
+    if (!dev_name.compare(this_dir) || !dev_name.compare(prev_dir))
+      continue;
+
+    if ((fd = open(full_path.c_str(), O_RDONLY)) == -1)
     {
       ui->Print("couldn't be opened\n");
       continue;
@@ -256,6 +273,8 @@ void read_block_devices(RecoveryUI* ui) {
 
     close(fd);
   }
+
+  closedir(dir);
 }
 
 int format_volume(const std::string& volume, const std::string& directory,
