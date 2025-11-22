@@ -25,6 +25,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <dirent.h>
+#include <sys/mman.h>
+#include <sys/sysmacros.h>
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -50,9 +54,9 @@ static Fstab fstab;
 
 constexpr const char* CACHE_ROOT = "/cache";
 
-// 2**20 (1 MB)
-#define BLKSZ 1048576
-char dev_null[BLKSZ];
+#define READSZ (1024 * 1024)
+#define BLKDEV_DIR "/dev/block/by-name/"
+#define BLKDEV_DIR_STR (str(BLKDEV_DIR))
 
 void load_volume_table() {
   if (!ReadDefaultFstab(&fstab)) {
@@ -204,75 +208,235 @@ bool WipeBlockDevice(const char* path) {
   return false;
 }
 
+static int blah(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
+  int fd;
+  ssize_t total_bytes_read, bytes_read, interval_bytes;
+  ssize_t update_interval, sz;
+  ssize_t ident_len, name_len;
+
+  std::string full_path(BLKDEV_DIR);
+  full_path += dirent->d_name;
+
+  /* TODO: add some max name len */
+  name_len = strlen(dirent->d_name);
+  if (name_len >= longest_name)
+    ident_len = 0;
+  else
+    ident_len = longest_name - name_len;
+
+  ui->Print("%s ", dirent->d_name);
+  for (int x = 0; x < ident_len; x++)
+    ui->Print(" ");
+
+  if ((fd = open(full_path.c_str(), O_RDONLY)) == -1)
+  {
+    ui->Print("couldn't be opened\n");
+    return 0;
+  }
+
+  /* TODO: CHECK LSEEK OUTPUT FOR ERROR */
+  sz = lseek(fd, 0, SEEK_END);
+  lseek(fd, 0, SEEK_SET);
+
+  update_interval = sz/20;
+  bytes_read = 0;
+  interval_bytes = 0;
+  total_bytes_read = 0;
+
+  while ((bytes_read = read(fd, read_dst, READSZ)) > 0)
+  {
+    if (ui->IsKeyPressed(KEY_VOLUMEDOWN))
+      return 1;
+    total_bytes_read += bytes_read;
+    interval_bytes += bytes_read;
+    while (interval_bytes >= update_interval)
+    {
+      interval_bytes -= update_interval;
+      ui->Print(". ");
+    }
+  }
+
+  // if (interval_bytes > 0)
+  //   ui->Print(". ");
+
+  if (total_bytes_read != sz)
+    ui->Print("Only read %zd out of %zd total bytes",
+              total_bytes_read, sz);
+
+  ui->Print("\n");
+
+  close(fd);
+  return 0;
+}
+
+static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** dirent_b) {
+  int compar_result;
+  struct stat dirent_a_statbuf, dirent_b_statbuf;
+  std::string a_path(BLKDEV_DIR);
+  std::string b_path(BLKDEV_DIR);
+  unsigned int a_operand, b_operand;
+
+  a_path += (*dirent_a)->d_name;
+  b_path += (*dirent_b)->d_name;
+
+  /*
+   * TODO: think about error checking here -- maybe we just return
+   * less than or equal or something
+   *
+   * but still scream and print the errno
+   */
+  stat(a_path.c_str(), &dirent_a_statbuf);
+  stat(b_path.c_str(), &dirent_b_statbuf);
+
+  a_operand = major(dirent_a_statbuf.st_dev);
+  b_operand = major(dirent_b_statbuf.st_dev);
+
+  if (a_operand == b_operand)
+  {
+    a_operand = minor(dirent_a_statbuf.st_dev);
+    b_operand = minor(dirent_b_statbuf.st_dev);
+  }
+
+  if (a_operand == b_operand)
+    compar_result =  0;
+  else if (a_operand > b_operand)
+    compar_result =  1;
+  else
+    compar_result = -1;
+
+  /* if equal, at least sort alphabetically */
+  if (compar_result == 0)
+    compar_result = alphasort(dirent_a, dirent_b);
+
+  return compar_result;
+}
+
+static int blkdev_filter(const struct dirent* dirent) {
+  return dirent->d_type == DT_BLK || dirent->d_type == DT_LNK;
+}
+
+static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
+  int num_devs;
+  size_t longest_name, name_len;
+  struct dirent** namelist;
+
+  /*
+   * https://www.gnu.org/software/libc/manual/html_node/Accessing-Directories.html
+   *
+   * scandir(3)
+   */
+  num_devs = scandir(BLKDEV_DIR, &namelist, blkdev_filter, blkdev_compar);
+  if (num_devs < 0)
+  {
+    ui->Print("ERROR: could not scan %s", BLKDEV_DIR);
+    return;
+  }
+
+  longest_name = 0;
+  for (int x = 0; x < num_devs; ++x)
+  {
+    name_len = strlen(namelist[x]->d_name);
+    if (name_len >= longest_name)
+      longest_name = name_len;
+  }
+
+  // ui->Print("\nLongest name: %zd\n", longest_name);
+
+  /* TODO: rethink freeing due to early exit from blah */
+  for (int x = 0; x < num_devs; ++x)
+  {
+    if (blah(ui, namelist[x], read_dst, longest_name))
+      break;
+  }
+
+  for (int x = 0; x < num_devs; ++x)
+    free(namelist[x]);
+  free(namelist);
+}
+
 void read_block_devices(RecoveryUI* ui) {
-  DIR* dir;
-  struct dirent* dirent;
-  std::string dev_dir = "/dev/block/by-name/";
+  void* read_dst;
 
   if (fstab.size() < 1)
     load_volume_table();
 
-  ui->ShowText(true);
+  ui->ClearScreen();
 
   ui->Print("Reading all block devices listed in %s\n"
-            "to find any bad sectors\n\n", dev_dir.c_str());
+            "to find any bad sectors\n\n", BLKDEV_DIR);
 
-  if (!(dir = opendir(dev_dir.c_str())))
+  /* mmap here to properly align the buffer for faster writes */
+  read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+  if (read_dst == MAP_FAILED)
   {
-    ui->Print("Could not read from the %s directory\n", dev_dir.c_str());
+    ui->Print("Could not allocate space to dump the read bytes "
+              "into: %d\n", errno);
     return;
   }
 
-  while ((dirent = readdir(dir)))
-  {
-    int fd;
-    ssize_t total_bytes_read, bytes_read, interval_bytes;
-    ssize_t update_interval, sz;
+  do_read_block_devices(ui, read_dst);
+}
 
-    std::string full_path = dev_dir + "/" + dirent->d_name;
+// int check_usr_partition(Device* device, RecoveryUI* ui) {
+int check_usr_partition(RecoveryUI* ui) {
+  // std::vector<std::string> make_f2fs_cmd; = { fsck_path, "-f", "/data" };
+  std::vector<std::string> fsck_f2fs_cmd;
+  std::vector<std::string> cryptfs_cmd;
+  int cmd_retval;
+  // RecoveryUI* ui;
 
-    /* TODO: update this check to include check of file at the link */
-    if (dirent->d_type != DT_BLK && dirent->d_type != DT_LNK)
-      continue;
+  const char* volume = "/data";
 
-    ui->Print("%s ", basename(dirent->d_name));
-
-    if ((fd = open(full_path.c_str(), O_RDONLY)) == -1)
-    {
-      ui->Print("couldn't be opened\n");
-      continue;
-    }
-
-    sz = lseek(fd, 0, SEEK_END);
-    lseek(fd, 0, SEEK_SET);
-    update_interval = sz/20;
-    bytes_read = 0;
-    interval_bytes = 0;
-    total_bytes_read = 0;
-    while ((bytes_read = read(fd, dev_null, BLKSZ)) > 0)
-    {
-      total_bytes_read += bytes_read; /* TODO: is this needed? */
-      interval_bytes += bytes_read;
-      while (interval_bytes >= update_interval)
-      {
-        interval_bytes -= update_interval;
-        ui->Print(". ");
-      }
-    }
-
-    if (interval_bytes > 0)
-      ui->Print(". ");
-
-    if (total_bytes_read != sz)
-      ui->Print("Only read %zd out of %zd total bytes",
-                total_bytes_read, sz);
-
-    ui->Print("\n");
-
-    close(fd);
+  const auto entries = android::fs_mgr::GetEntriesForPath(&fstab, volume);
+  if (entries.empty()) {
+    LOG(ERROR) << "unknown volume \"" << volume << "\"";
+    return -1;
   }
 
-  closedir(dir);
+  const FstabEntry* v = LocateFormattableEntry(entries);
+  if (v == nullptr) {
+    LOG(ERROR) << "Unable to find fsck'able entry for \"" << volume << "\"";
+    return -1;
+  }
+  if (v->fs_type == "ramdisk") {
+    LOG(ERROR) << "can't check_usr_partition \"" << volume << "\"";
+    return -1;
+  }
+  if (v->mount_point != volume) {
+    LOG(ERROR) << "can't give path \"" << volume << "\" to check_usr_partition";
+    return -1;
+  }
+  if (ensure_path_unmounted(volume) != 0) {
+    LOG(ERROR) << "check_usr_partition: Failed to unmount \"" << v->mount_point << "\"";
+    return -1;
+  }
+  if (v->fs_type != "f2fs") {
+    LOG(ERROR) << "check_usr_partition: fs_type \"" << v->fs_type << "\" unsupported";
+    return -1;
+  }
+
+  // LOG(INFO) << "Checking " << v->blk_device << " as f2fs";
+
+  // ui = device->GetUI();
+  /*
+   * even though the file system's been mounted at this point, fsck
+   * still takes the device, not mount point
+   */
+  // fsck_f2fs_cmd = { "/system/bin/fsck.f2fs", "-f", v->blk_device };
+  // fsck_f2fs_cmd = { "/system/bin/fsck.f2fs", "--dry-run", v->blk_device };
+  fsck_f2fs_cmd = { "/system/bin/fsck.f2fs", "-a", v->blk_device };
+  // fsck_f2fs_cmd = { "/system/bin/fsck.f2fs" , "-h" };
+
+  ui->Print("\n-- Fsck'ing /data ...\n");
+  cmd_retval = exec_cmd(fsck_f2fs_cmd);
+  if (cmd_retval <= 0) {
+    PLOG(ERROR) << "check_usr_partition: Failed to fsck.f2fs on "
+                << v->blk_device;
+    return -1;
+  }
+  ui->Print("Done Fsck'ing /data %d.\n", cmd_retval);
+
+  return 0;
 }
 
 int format_volume(const std::string& volume, const std::string& directory,

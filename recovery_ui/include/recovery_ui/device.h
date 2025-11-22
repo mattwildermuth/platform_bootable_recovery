@@ -63,7 +63,8 @@ class Device {
     REBOOT_RESCUE = 19,
     REBOOT_FROM_FASTBOOT = 20,
     SHUTDOWN_FROM_FASTBOOT = 21,
-    READ_BLOCK_DEVICES = 22,
+    STORAGE_SCAN = 22,
+    // FSCK_USR_PARTITION = 23,
   };
 
   explicit Device(RecoveryUI* ui);

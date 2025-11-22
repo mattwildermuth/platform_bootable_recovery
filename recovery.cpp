@@ -524,7 +524,7 @@ static Device::BuiltinAction PromptAndWait(Device* device, InstallResult status)
         choose_recovery_file(device);
         break;
 
-      case Device::READ_BLOCK_DEVICES:
+      case Device::STORAGE_SCAN:
         read_block_devices(ui);
         break;
 
@@ -741,7 +741,7 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
 
   std::vector<std::string> title_lines =
       android::base::Split(android::base::GetProperty("ro.build.fingerprint", ""), ":");
-  title_lines.insert(std::begin(title_lines), "GrapheneOS Recovery");
+  title_lines.insert(std::begin(title_lines), "GrapheneOS Recovery [IN PROGRESS]");
   ui->SetTitle(title_lines);
 
   ui->ResetKeyInterruptStatus();
