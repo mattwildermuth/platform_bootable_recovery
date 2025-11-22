@@ -359,8 +359,6 @@ void read_block_devices(RecoveryUI* ui) {
   if (fstab.size() < 1)
     load_volume_table();
 
-  ui->ClearScreen();
-
   ui->Print("Reading all block devices listed in %s\n"
             "to find any bad sectors\n\n", BLKDEV_DIR);
 
