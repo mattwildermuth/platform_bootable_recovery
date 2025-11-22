@@ -217,7 +217,6 @@ static int blah(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t lo
   std::string full_path(BLKDEV_DIR);
   full_path += dirent->d_name;
 
-  /* TODO: add some max name len */
   name_len = strlen(dirent->d_name);
   if (name_len >= longest_name)
     ident_len = 0;
@@ -256,8 +255,11 @@ static int blah(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t lo
     }
   }
 
-  // if (interval_bytes > 0)
-  //   ui->Print(". ");
+  /* 
+   * technically, we could still have interval_bytes != 0 here -- we
+   * shouldn't print anything though because an extra dot being
+   * printed sometimes would be a weird thing to a user
+   */
 
   if (total_bytes_read != sz)
     ui->Print("Only read %zd out of %zd total bytes",
