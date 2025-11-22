@@ -297,16 +297,13 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
     b_operand = minor(dirent_b_statbuf.st_dev);
   }
 
+  /* if equal, at least sort alphabetically */
   if (a_operand == b_operand)
-    compar_result =  0;
+    compar_result = alphasort(dirent_a, dirent_b);
   else if (a_operand > b_operand)
     compar_result =  1;
   else
     compar_result = -1;
-
-  /* if equal, at least sort alphabetically */
-  if (compar_result == 0)
-    compar_result = alphasort(dirent_a, dirent_b);
 
   return compar_result;
 }
@@ -375,68 +372,6 @@ void read_block_devices(RecoveryUI* ui) {
   }
 
   do_read_block_devices(ui, read_dst);
-}
-
-// int check_usr_partition(Device* device, RecoveryUI* ui) {
-int check_usr_partition(RecoveryUI* ui) {
-  // std::vector<std::string> make_f2fs_cmd; = { fsck_path, "-f", "/data" };
-  std::vector<std::string> fsck_f2fs_cmd;
-  std::vector<std::string> cryptfs_cmd;
-  int cmd_retval;
-  // RecoveryUI* ui;
-
-  const char* volume = "/data";
-
-  const auto entries = android::fs_mgr::GetEntriesForPath(&fstab, volume);
-  if (entries.empty()) {
-    LOG(ERROR) << "unknown volume \"" << volume << "\"";
-    return -1;
-  }
-
-  const FstabEntry* v = LocateFormattableEntry(entries);
-  if (v == nullptr) {
-    LOG(ERROR) << "Unable to find fsck'able entry for \"" << volume << "\"";
-    return -1;
-  }
-  if (v->fs_type == "ramdisk") {
-    LOG(ERROR) << "can't check_usr_partition \"" << volume << "\"";
-    return -1;
-  }
-  if (v->mount_point != volume) {
-    LOG(ERROR) << "can't give path \"" << volume << "\" to check_usr_partition";
-    return -1;
-  }
-  if (ensure_path_unmounted(volume) != 0) {
-    LOG(ERROR) << "check_usr_partition: Failed to unmount \"" << v->mount_point << "\"";
-    return -1;
-  }
-  if (v->fs_type != "f2fs") {
-    LOG(ERROR) << "check_usr_partition: fs_type \"" << v->fs_type << "\" unsupported";
-    return -1;
-  }
-
-  // LOG(INFO) << "Checking " << v->blk_device << " as f2fs";
-
-  // ui = device->GetUI();
-  /*
-   * even though the file system's been mounted at this point, fsck
-   * still takes the device, not mount point
-   */
-  // fsck_f2fs_cmd = { "/system/bin/fsck.f2fs", "-f", v->blk_device };
-  // fsck_f2fs_cmd = { "/system/bin/fsck.f2fs", "--dry-run", v->blk_device };
-  fsck_f2fs_cmd = { "/system/bin/fsck.f2fs", "-a", v->blk_device };
-  // fsck_f2fs_cmd = { "/system/bin/fsck.f2fs" , "-h" };
-
-  ui->Print("\n-- Fsck'ing /data ...\n");
-  cmd_retval = exec_cmd(fsck_f2fs_cmd);
-  if (cmd_retval <= 0) {
-    PLOG(ERROR) << "check_usr_partition: Failed to fsck.f2fs on "
-                << v->blk_device;
-    return -1;
-  }
-  ui->Print("Done Fsck'ing /data %d.\n", cmd_retval);
-
-  return 0;
 }
 
 int format_volume(const std::string& volume, const std::string& directory,
