@@ -159,6 +159,8 @@ static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
 void read_block_devices(RecoveryUI* ui) {
   void* read_dst;
 
+  ui->ClearText();
+
   ui->Print("Reading all block devices listed in %s\n"
             "to find any bad sectors\n\n", BLKDEV_DIR);
 
