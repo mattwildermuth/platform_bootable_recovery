@@ -29,13 +29,13 @@ static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_
   else
     ident_len = longest_name - name_len;
 
-  ui->Print("%s ", dirent->d_name);
+  ui->PrintOnScreenOnly("%s ", dirent->d_name);
   for (int x = 0; x < ident_len; x++)
-    ui->Print(" ");
+    ui->PrintOnScreenOnly(" ");
 
   if ((fd = open(full_path.c_str(), O_RDONLY)) == -1)
   {
-    ui->Print("couldn't be opened\n");
+    ui->PrintOnScreenOnly("couldn't be opened\n");
     return 0;
   }
 
@@ -57,7 +57,7 @@ static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_
     while (interval_bytes >= update_interval)
     {
       interval_bytes -= update_interval;
-      ui->Print(". ");
+      ui->PrintOnScreenOnly(". ");
     }
   }
 
@@ -68,10 +68,10 @@ static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_
    */
 
   if (total_bytes_read != sz)
-    ui->Print("Only read %zd out of %zd total bytes",
-              total_bytes_read, sz);
+    ui->PrintOnScreenOnly("Only read %zd out of %zd total bytes",
+                          total_bytes_read, sz);
 
-  ui->Print("\n");
+  ui->PrintOnScreenOnly("\n");
 
   close(fd);
   return 0;
@@ -133,7 +133,7 @@ static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
   num_devs = scandir(BLKDEV_DIR, &namelist, blkdev_filter, blkdev_compar);
   if (num_devs < 0)
   {
-    ui->Print("ERROR: could not scan %s", BLKDEV_DIR);
+    ui->PrintOnScreenOnly("ERROR: could not scan %s", BLKDEV_DIR);
     return;
   }
 
@@ -161,15 +161,15 @@ void read_block_devices(RecoveryUI* ui) {
 
   ui->ClearText();
 
-  ui->Print("Reading all block devices listed in %s\n"
-            "to find any bad sectors\n\n", BLKDEV_DIR);
+  ui->PrintOnScreenOnly("Reading all block devices listed in %s\n"
+                        "to find any bad sectors\n\n", BLKDEV_DIR);
 
   /* mmap here to properly align the buffer for faster writes */
   read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
   if (read_dst == MAP_FAILED)
   {
-    ui->Print("Could not allocate space to dump the read bytes "
-              "into: %d\n", errno);
+    ui->PrintOnScreenOnly("Could not allocate space to dump the "
+                          "read bytes into: %d\n", errno);
     return;
   }
 
