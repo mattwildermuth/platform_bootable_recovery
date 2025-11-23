@@ -14,7 +14,7 @@
 #define READSZ (1024 * 1024)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
-static int blah(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
+static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
   int fd;
   ssize_t total_bytes_read, bytes_read, interval_bytes;
   ssize_t update_interval, sz;
@@ -147,7 +147,7 @@ static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
 
   for (int x = 0; x < num_devs; ++x)
   {
-    if (blah(ui, namelist[x], read_dst, longest_name))
+    if (read_dev(ui, namelist[x], read_dst, longest_name))
       break;
   }
 
