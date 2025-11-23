@@ -57,6 +57,7 @@
 #include "recovery_utils/battery_utils.h"
 #include "recovery_utils/logging.h"
 #include "recovery_utils/roots.h"
+#include "diagnostics/read_dev.h"
 
 static constexpr const char* COMMAND_FILE = "/cache/recovery/command";
 static constexpr const char* LAST_KMSG_FILE = "/cache/recovery/last_kmsg";

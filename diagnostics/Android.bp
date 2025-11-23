@@ -1,0 +1,96 @@
+/* TODO: Should there be a copyright here? */
+
+/* TODO: Should we retain the below? */
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "bootable_recovery_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["bootable_recovery_license"],
+}
+
+cc_defaults {
+    name: "librecovery_diagnostics_defaults",
+
+    // defaults: [
+    //     "recovery_defaults",
+    // ],
+
+    // shared_libs: [
+    //     "android.hardware.health@2.0",
+    //     "libbase",
+    //     "libbinder_ndk",
+    //     "libext4_utils",
+    //     "libfs_mgr",
+    //     "libhidlbase",
+    //     "libselinux",
+    //     "libutils",
+    // ],
+
+    // static_libs: [
+    //     "libotautil",
+
+    //     // External dependencies.
+    //     "android.hardware.health-translate-ndk",
+    //     "libfstab",
+    //     "libhealthhalutils",
+    //     "libhealthshim",
+    // ],
+}
+
+// A utility lib that's local to recovery (in contrast, libotautil is exposed to device-specific
+// recovery_ui lib as well as device-specific updater).
+
+// Make a new static library for diagnostics tooling which can access
+// other parts of recovery that may conatian device-specific codes
+// (e.g., librecovery_ui)
+cc_library_static {
+    name: "librecovery_diagnostics",
+
+    recovery_available: true,
+
+    defaults: [
+        "librecovery_diagnostics_defaults",
+    ],
+
+    srcs: [
+        "read_dev.cpp",
+    ],
+
+    // header_libs: [
+    //     "libvold_headers",
+    // ],
+
+    // shared_libs: [
+    //     // The following cannot be placed in librecovery_utils_defaults,
+    //     // because at the time of writing, android.hardware.health-V4-ndk.so
+    //     // is not installed to the system image yet. (It is installed
+    //     // to the recovery ramdisk.) Hence, minadbd_test must link to it
+    //     // statically.
+    //     "android.hardware.health-V4-ndk",
+    // ],
+
+    shared_libs: [
+        "librecovery_ui",
+    ],
+
+    export_include_dirs: [
+        "include",
+    ],
+
+    // export_static_lib_headers: [
+    //     // roots.h includes <fstab/fstab.h>.
+    //     "libfstab",
+    // ],
+
+    // // Should avoid exposing to the libs that might be used in device-specific codes (e.g.
+    // // libedify, libotautil, librecovery_ui).
+    // visibility: [
+    //     "//bootable/recovery",
+    //     "//bootable/recovery/install",
+    //     "//bootable/recovery/minadbd",
+    //     "//bootable/recovery/tests",
+    //     "//bootable/deprecated-ota:__subpackages__",
+    // ],
+}
