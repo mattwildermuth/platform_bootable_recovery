@@ -13,7 +13,6 @@
 
 #define READSZ (1024 * 1024)
 #define BLKDEV_DIR "/dev/block/by-name/"
-#define BLKDEV_DIR_STR (str(BLKDEV_DIR))
 
 static int blah(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
   int fd;
