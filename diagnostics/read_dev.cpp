@@ -145,9 +145,6 @@ static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
       longest_name = name_len;
   }
 
-  // ui->Print("\nLongest name: %zd\n", longest_name);
-
-  /* TODO: rethink freeing due to early exit from blah */
   for (int x = 0; x < num_devs; ++x)
   {
     if (blah(ui, namelist[x], read_dst, longest_name))
