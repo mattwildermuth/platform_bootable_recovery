@@ -29,9 +29,13 @@ static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_
   else
     ident_len = longest_name - name_len;
 
-  ui->PrintOnScreenOnly("%s ", dirent->d_name);
+  /* Use PutChar to avoid redrawing the screen */
+  for (int x = 0; x < name_len; x++)
+    ui->PutChar(dirent->d_name[x]);
   for (int x = 0; x < ident_len; x++)
-    ui->PrintOnScreenOnly(" ");
+    ui->PutChar(' ');
+
+  ui->Redraw();
 
   if ((fd = open(full_path.c_str(), O_RDONLY)) == -1)
   {
@@ -71,7 +75,11 @@ static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_
     ui->PrintOnScreenOnly("Only read %zd out of %zd total bytes",
                           total_bytes_read, sz);
 
-  ui->PrintOnScreenOnly("\n");
+  /*
+   * Debatable whether we should call Print() here to force a redraw
+   * if this function is to be truly generic
+   */
+  ui->PutChar('\n');
 
   close(fd);
   return 0;

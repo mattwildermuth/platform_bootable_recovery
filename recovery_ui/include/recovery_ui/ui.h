@@ -101,6 +101,8 @@ class RecoveryUI {
   virtual void PrintOnScreenOnly(const char* fmt, ...) __printflike(2, 3) = 0;
 
   virtual void ClearText();
+  virtual void PutChar(char ch);
+  virtual void Redraw();
 
   // Shows the contents of the given file. Caller ensures the patition that contains the file has
   // been mounted.
