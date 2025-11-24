@@ -11,14 +11,27 @@
 #include <sys/mman.h>
 #include <sys/sysmacros.h>
 
-#define READSZ (1024 * 1024)
+#define MB (1024 * 1024)
+#define READSZ (MB)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
-static float read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
+/*
+ * TODO: REVIEW: this is an exact duplicate of the function in
+ * recovery_ui/screen_ui.cpp. Consider engineering something to remove
+ * this duplicate definition
+ */
+static double now() {
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  return tv.tv_sec + tv.tv_usec / 1000000.0;
+}
+
+static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
   int fd;
   ssize_t total_bytes_read, bytes_read, interval_bytes;
   ssize_t update_interval, sz;
   ssize_t indent_len, name_len;
+  double total_time, before_read_time;
 
   std::string full_path(BLKDEV_DIR);
   full_path += dirent->d_name;
@@ -51,11 +64,20 @@ static float read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, siz
   bytes_read = 0;
   interval_bytes = 0;
   total_bytes_read = 0;
+  total_time = 0.0;
 
-  while ((bytes_read = read(fd, read_dst, READSZ)) > 0)
+  while (true)
   {
+    before_read_time = now();
+    bytes_read = read(fd, read_dst, READSZ);
+    total_time += (now() - before_read_time);
+
+    /* TODO: handle error case (bytes_read = -1) and check errno */
+    if (bytes_read == 0)
+      break;
     if (ui->IsKeyPressed(KEY_VOLUMEDOWN))
       return -1.0;
+
     total_bytes_read += bytes_read;
     interval_bytes += bytes_read;
     while (interval_bytes >= update_interval)
@@ -82,7 +104,8 @@ static float read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, siz
   ui->PutChar('\n');
 
   close(fd);
-  return 0.0;
+
+  return ((total_bytes_read/MB)/total_time);
 }
 
 static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** dirent_b) {
@@ -129,9 +152,13 @@ static int blkdev_filter(const struct dirent* dirent) {
 }
 
 static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
-  int num_devs;
+  int num_devs, num_devs_read;
   size_t longest_name, name_len;
   struct dirent** namelist;
+  double avg_speed, file_speed;
+
+  num_devs_read = 0;
+  avg_speed = 0.0;
 
   /*
    * https://www.gnu.org/software/libc/manual/html_node/Accessing-Directories.html
@@ -155,12 +182,24 @@ static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
 
   for (int x = 0; x < num_devs; ++x)
   {
-    read_dev(ui, namelist[x], read_dst, longest_name);
+    file_speed = read_dev(ui, namelist[x], read_dst, longest_name);
+    if (file_speed < 0.0)
+    {
+      break;
+    }
+    else if (file_speed > 0.0)
+    {
+      num_devs_read++;
+      avg_speed += file_speed;
+    }
   }
 
   for (int x = 0; x < num_devs; ++x)
     free(namelist[x]);
   free(namelist);
+
+  ui->PrintOnScreenOnly("Average read speed (Mb/s): %f",
+                        (avg_speed/num_devs_read));
 }
 
 void read_block_devices(RecoveryUI* ui) {
