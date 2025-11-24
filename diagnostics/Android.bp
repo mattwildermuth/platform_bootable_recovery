@@ -10,38 +10,6 @@ package {
     default_applicable_licenses: ["bootable_recovery_license"],
 }
 
-cc_defaults {
-    name: "librecovery_diagnostics_defaults",
-
-    // defaults: [
-    //     "recovery_defaults",
-    // ],
-
-    // shared_libs: [
-    //     "android.hardware.health@2.0",
-    //     "libbase",
-    //     "libbinder_ndk",
-    //     "libext4_utils",
-    //     "libfs_mgr",
-    //     "libhidlbase",
-    //     "libselinux",
-    //     "libutils",
-    // ],
-
-    // static_libs: [
-    //     "libotautil",
-
-    //     // External dependencies.
-    //     "android.hardware.health-translate-ndk",
-    //     "libfstab",
-    //     "libhealthhalutils",
-    //     "libhealthshim",
-    // ],
-}
-
-// A utility lib that's local to recovery (in contrast, libotautil is exposed to device-specific
-// recovery_ui lib as well as device-specific updater).
-
 // Make a new static library for diagnostics tooling which can access
 // other parts of recovery that may conatian device-specific codes
 // (e.g., librecovery_ui)
@@ -49,10 +17,6 @@ cc_library_static {
     name: "librecovery_diagnostics",
 
     recovery_available: true,
-
-    defaults: [
-        "librecovery_diagnostics_defaults",
-    ],
 
     srcs: [
         "read_dev.cpp",

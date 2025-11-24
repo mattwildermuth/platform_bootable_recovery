@@ -18,7 +18,7 @@
 #define BLKDEV_DIR "/dev/block/by-name/"
 
 // #define SPEED_AFTER_EVERY_DEV
-#define MOCK_READ
+// #define MOCK_READ
 
 /* cannot do the below because recoveryui is an abstract class :| */
 // static RecoveryUI ui;
