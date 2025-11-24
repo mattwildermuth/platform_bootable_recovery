@@ -17,7 +17,7 @@
 #define READSZ (MB)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
-#define SPEED_AFTER_EVERY_DEV
+// #define SPEED_AFTER_EVERY_DEV
 #define MOCK_READ
 
 /* cannot do the below because recoveryui is an abstract class :| */
@@ -32,6 +32,40 @@ static double now() {
   struct timeval tv;
   gettimeofday(&tv, nullptr);
   return tv.tv_sec + tv.tv_usec / 1000000.0;
+}
+
+static int mocked_read2(int fd, void* buf, size_t count, size_t dev_sz) {
+  off_t dev_pos;
+
+  if ((dev_pos = lseek(fd, 0, SEEK_CUR)) == -1)
+    return -1;
+
+  if ((dev_pos/dev_sz) == 5)
+    return -1;
+
+  return read(fd, buf, count);
+}
+
+static int mocked_read(int fd, void* buf, size_t count) {
+  int rand_fd;
+  size_t rand;
+
+  if ((rand_fd = open("/dev/urandom", O_RDONLY)) == -1)
+    return -1;
+
+  if ((rand = read(rand_fd, &rand, sizeof(rand))) == -1)
+    return -1;
+
+  if ((rand % 997) == 0)
+    return -1;
+  // if ((rand % (4096*1024)) == 0)
+  //   return -1;
+  // if ((rand % 4096) == 0)
+  //   return -1;
+  // if ((rand % 8) == 0)
+  //   return -1;
+
+  return read(fd, buf, count);
 }
 
 static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
@@ -66,29 +100,35 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
     return 0.0;
   }
 
+  total_bytes_read = 0;
+  total_time = 0.0;
+
   if ((sz = lseek(fd, 0, SEEK_END)) == -1)
   {
     ui->PrintOnScreenOnly("could not seek to end of device "
                           "(errno: %d, %s)\n", errno, strerror(errno));
-    return 0.0;
+    goto seek_error;
   }
   if (lseek(fd, 0, SEEK_SET) == -1)
   {
     ui->PrintOnScreenOnly("could not seek back to start of device "
                           "(errno: %d, %s)\n", errno, strerror(errno));
-    return 0.0;
+    goto seek_error;
   }
 
   update_interval = sz/20;
   bytes_read = 0;
   interval_bytes = 0;
-  total_bytes_read = 0;
-  total_time = 0.0;
 
   while (true)
   {
     before_read_time = now();
+#ifdef MOCK_READ
+    // bytes_read = mocked_read(fd, read_dst, READSZ);
+    bytes_read = mocked_read2(fd, read_dst, READSZ, sz);
+#else
     bytes_read = read(fd, read_dst, READSZ);
+#endif
     total_time += (now() - before_read_time);
 
     /* TODO: handle error case (bytes_read = -1) and check errno */
@@ -98,7 +138,24 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
     }
     else if (bytes_read == -1)
     {
-      //
+      ui->PrintOnScreenOnly("READ ERROR WHEN TRYING TO READ bytes: %zd, "
+                            "MB #%zd (errno: %d, %s)\n",
+                            total_bytes_read, (total_bytes_read/READSZ),
+                            errno, strerror(errno));
+      /*
+       * the position of the file position pointer is undefined if
+       * read returns an error -- we want to try and continue reading
+       * -- hopefully the next block we've seeked to is readable
+       */
+      if (lseek(fd, (total_bytes_read + READSZ), SEEK_SET) == -1)
+      {
+        ui->PrintOnScreenOnly("Could not continue to read file after "
+                              "read error -- left in undefined "
+                              "position (errno: %d, %s)\n", errno,
+                              strerror(errno));
+        goto seek_error;
+      }
+      continue;
     }
     if (ui->IsKeyPressed(KEY_VOLUMEDOWN))
     {
@@ -123,16 +180,13 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
    * printed sometimes would be a weird thing to a user
    */
 
-  if (total_bytes_read != sz)
-    ui->PrintOnScreenOnly("Only read %zd out of %zd total bytes",
-                          total_bytes_read, sz);
-
   /*
    * Debatable whether we should call Print() here to force a redraw
    * if this function is to be truly generic
    */
   ui->PutChar('\n');
 
+ seek_error:
   close(fd);
 
   return ((total_bytes_read/MB)/total_time);
@@ -241,6 +295,7 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
     else if (file_speed > 0.0)
     {
 #ifdef SPEED_AFTER_EVERY_DEV
+      /* TODO: some devices reads won't reach here (file_speed=0) -- diagnose */
       ui->PrintOnScreenOnly("Read speed (MB/s): %f\n", file_speed);
 #endif
       num_devs_read++;
