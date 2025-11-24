@@ -1,5 +1,7 @@
 #include <diagnostics/read_dev.h>
 
+#include <string.h>
+
 #include <sys/types.h>
 #include <fcntl.h>
 
@@ -48,17 +50,28 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
   for (int x = 0; x < indent_len; x++)
     ui->PutChar(' ');
 
+  ui->PutChar(' ');
   ui->Redraw();
 
   if ((fd = open(full_path.c_str(), O_RDONLY)) == -1)
   {
-    ui->PrintOnScreenOnly("couldn't be opened\n");
+    ui->PrintOnScreenOnly("couldn't be opened (errno: %d, %s)\n",
+                          errno, strerror(errno));
     return 0.0;
   }
 
-  /* TODO: CHECK LSEEK OUTPUT FOR ERROR */
-  sz = lseek(fd, 0, SEEK_END);
-  lseek(fd, 0, SEEK_SET);
+  if ((sz = lseek(fd, 0, SEEK_END)) == -1)
+  {
+    ui->PrintOnScreenOnly("could not seek to end of device "
+                          "(errno: %d, %s)\n", errno, strerror(errno));
+    return 0.0;
+  }
+  if (lseek(fd, 0, SEEK_SET) == -1)
+  {
+    ui->PrintOnScreenOnly("could not seek back to start of device "
+                          "(errno: %d, %s)\n", errno, strerror(errno));
+    return 0.0;
+  }
 
   update_interval = sz/20;
   bytes_read = 0;
@@ -83,8 +96,10 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
     while (interval_bytes >= update_interval)
     {
       interval_bytes -= update_interval;
-      ui->PrintOnScreenOnly(". ");
+      ui->PutChar('.');
+      ui->PutChar(' ');
     }
+    ui->Redraw();
   }
 
   /* 
@@ -119,13 +134,26 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
   b_path += (*dirent_b)->d_name;
 
   /*
-   * TODO: think about error checking here -- maybe we just return
-   * less than or equal or something
+   * TODO: What do we do on error?
    *
-   * but still scream and print the errno
+   * Could we read the device if this fails?
+   * How screwed are we if stat fails?
+   * How do we communicate that an error happend up the chain?
+   * Exiting here would feel extreme, but is it even possible to do
+   *   that in this 'callback'?
    */
-  stat(a_path.c_str(), &dirent_a_statbuf);
-  stat(b_path.c_str(), &dirent_b_statbuf);
+  if (stat(a_path.c_str(), &dirent_a_statbuf) == -1)
+  {
+    ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
+                          a_path.c_str(), errno, strerror(errno));
+    return 0;
+  }
+  if (stat(b_path.c_str(), &dirent_b_statbuf) == -1)
+  {
+    ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
+                          b_path.c_str(), errno, strerror(errno));
+    return 0;
+  }
 
   a_operand = major(dirent_a_statbuf.st_dev);
   b_operand = major(dirent_b_statbuf.st_dev);
@@ -151,7 +179,7 @@ static int blkdev_filter(const struct dirent* dirent) {
   return dirent->d_type == DT_BLK || dirent->d_type == DT_LNK;
 }
 
-static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
+static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   int num_devs, num_devs_read;
   size_t longest_name, name_len;
   struct dirent** namelist;
@@ -168,7 +196,8 @@ static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
   num_devs = scandir(BLKDEV_DIR, &namelist, blkdev_filter, blkdev_compar);
   if (num_devs < 0)
   {
-    ui->PrintOnScreenOnly("ERROR: could not scan %s", BLKDEV_DIR);
+    ui->PrintOnScreenOnly("ERROR: could not scan %s (errno: %d, %s)",
+                          BLKDEV_DIR, errno, strerror(errno));
     return;
   }
 
@@ -202,7 +231,7 @@ static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
                         (avg_speed/num_devs_read));
 }
 
-void read_block_devices(RecoveryUI* ui) {
+void scan_storage(RecoveryUI* ui) {
   void* read_dst;
 
   ui->ClearText();
@@ -215,9 +244,10 @@ void read_block_devices(RecoveryUI* ui) {
   if (read_dst == MAP_FAILED)
   {
     ui->PrintOnScreenOnly("Could not allocate space to dump the "
-                          "read bytes into: %d\n", errno);
+                          "read bytes into (errno: %d, %s)\n", errno,
+                          strerror(errno));
     return;
   }
 
-  do_read_block_devices(ui, read_dst);
+  do_scan_storage(ui, read_dst);
 }

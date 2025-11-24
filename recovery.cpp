@@ -526,7 +526,7 @@ static Device::BuiltinAction PromptAndWait(Device* device, InstallResult status)
         break;
 
       case Device::STORAGE_SCAN:
-        read_block_devices(ui);
+        scan_storage(ui);
         break;
 
       case Device::RUN_GRAPHICS_TEST:

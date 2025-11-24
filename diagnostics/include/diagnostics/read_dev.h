@@ -6,4 +6,4 @@
 
 // Read block devices available from recovery to ensure that the
 // underlying storage works nominally
-void read_block_devices(RecoveryUI* ui);
+void scan_storage(RecoveryUI* ui);
