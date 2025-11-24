@@ -174,7 +174,7 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
     ui->Redraw();
   }
 
-  /* 
+  /*
    * technically, we could still have interval_bytes != 0 here -- we
    * shouldn't print anything though because an extra dot being
    * printed sometimes would be a weird thing to a user
