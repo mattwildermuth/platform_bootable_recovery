@@ -17,6 +17,12 @@
 #define READSZ (MB)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
+#define SPEED_AFTER_EVERY_DEV
+#define MOCK_READ
+
+/* cannot do the below because recoveryui is an abstract class :| */
+// static RecoveryUI ui;
+
 /*
  * TODO: REVIEW: this is an exact duplicate of the function in
  * recovery_ui/screen_ui.cpp. Consider engineering something to remove
@@ -87,9 +93,18 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
 
     /* TODO: handle error case (bytes_read = -1) and check errno */
     if (bytes_read == 0)
+    {
       break;
+    }
+    else if (bytes_read == -1)
+    {
+      //
+    }
     if (ui->IsKeyPressed(KEY_VOLUMEDOWN))
+    {
+      ui->PutChar('\n');
       return -1.0;
+    }
 
     total_bytes_read += bytes_read;
     interval_bytes += bytes_read;
@@ -141,17 +156,24 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
    * How do we communicate that an error happend up the chain?
    * Exiting here would feel extreme, but is it even possible to do
    *   that in this 'callback'?
+   *
+   * the ui variable is also not available here atm -- is it worth
+   * even trying to make global if we can't even bail?
+   *
+   * Hopefully, if we haven't managed to stat here and something else
+   * is wrong, it'll be picked up by another function later on down
+   * the line when the file is being opened or read from
    */
   if (stat(a_path.c_str(), &dirent_a_statbuf) == -1)
   {
-    ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
-                          a_path.c_str(), errno, strerror(errno));
+    // ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
+    //                       a_path.c_str(), errno, strerror(errno));
     return 0;
   }
   if (stat(b_path.c_str(), &dirent_b_statbuf) == -1)
   {
-    ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
-                          b_path.c_str(), errno, strerror(errno));
+    // ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
+    //                       b_path.c_str(), errno, strerror(errno));
     return 0;
   }
 
@@ -218,6 +240,9 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
     }
     else if (file_speed > 0.0)
     {
+#ifdef SPEED_AFTER_EVERY_DEV
+      ui->PrintOnScreenOnly("Read speed (MB/s): %f\n", file_speed);
+#endif
       num_devs_read++;
       avg_speed += file_speed;
     }
@@ -227,7 +252,7 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
     free(namelist[x]);
   free(namelist);
 
-  ui->PrintOnScreenOnly("Average read speed (MB/s): %f",
+  ui->PrintOnScreenOnly("Average read speed (MB/s): %f\n",
                         (avg_speed/num_devs_read));
 }
 
