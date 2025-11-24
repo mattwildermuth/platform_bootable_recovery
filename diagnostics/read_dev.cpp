@@ -14,25 +14,25 @@
 #define READSZ (1024 * 1024)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
-static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
+static float read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
   int fd;
   ssize_t total_bytes_read, bytes_read, interval_bytes;
   ssize_t update_interval, sz;
-  ssize_t ident_len, name_len;
+  ssize_t indent_len, name_len;
 
   std::string full_path(BLKDEV_DIR);
   full_path += dirent->d_name;
 
   name_len = strlen(dirent->d_name);
   if (name_len >= longest_name)
-    ident_len = 0;
+    indent_len = 0;
   else
-    ident_len = longest_name - name_len;
+    indent_len = longest_name - name_len;
 
   /* Use PutChar to avoid redrawing the screen */
   for (int x = 0; x < name_len; x++)
     ui->PutChar(dirent->d_name[x]);
-  for (int x = 0; x < ident_len; x++)
+  for (int x = 0; x < indent_len; x++)
     ui->PutChar(' ');
 
   ui->Redraw();
@@ -40,7 +40,7 @@ static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_
   if ((fd = open(full_path.c_str(), O_RDONLY)) == -1)
   {
     ui->PrintOnScreenOnly("couldn't be opened\n");
-    return 0;
+    return 0.0;
   }
 
   /* TODO: CHECK LSEEK OUTPUT FOR ERROR */
@@ -55,7 +55,7 @@ static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_
   while ((bytes_read = read(fd, read_dst, READSZ)) > 0)
   {
     if (ui->IsKeyPressed(KEY_VOLUMEDOWN))
-      return 1;
+      return -1.0;
     total_bytes_read += bytes_read;
     interval_bytes += bytes_read;
     while (interval_bytes >= update_interval)
@@ -82,7 +82,7 @@ static int read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_
   ui->PutChar('\n');
 
   close(fd);
-  return 0;
+  return 0.0;
 }
 
 static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** dirent_b) {
@@ -155,8 +155,7 @@ static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
 
   for (int x = 0; x < num_devs; ++x)
   {
-    if (read_dev(ui, namelist[x], read_dst, longest_name))
-      break;
+    read_dev(ui, namelist[x], read_dst, longest_name);
   }
 
   for (int x = 0; x < num_devs; ++x)
