@@ -198,7 +198,7 @@ static void do_read_block_devices(RecoveryUI* ui, void* read_dst) {
     free(namelist[x]);
   free(namelist);
 
-  ui->PrintOnScreenOnly("Average read speed (Mb/s): %f",
+  ui->PrintOnScreenOnly("Average read speed (MB/s): %f",
                         (avg_speed/num_devs_read));
 }
 
