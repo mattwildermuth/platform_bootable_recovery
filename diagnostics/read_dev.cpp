@@ -17,7 +17,11 @@
 #define READSZ (MB)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
-// #define SPEED_AFTER_EVERY_DEV
+/*
+ * TODO: try redrawing the screen twice and try calculating the time
+ * it takes to it the second time (after no changes)
+ */
+
 // #define MOCK_READ
 
 /* cannot do the below because recoveryui is an abstract class :| */
@@ -33,6 +37,8 @@ static double now() {
   gettimeofday(&tv, nullptr);
   return tv.tv_sec + tv.tv_usec / 1000000.0;
 }
+
+#ifdef MOCK_READ
 
 static int mocked_read2(int fd, void* buf, size_t count, size_t dev_sz) {
   off_t dev_pos;
@@ -68,6 +74,8 @@ static int mocked_read(int fd, void* buf, size_t count) {
   return read(fd, buf, count);
 }
 
+#endif /* #ifdef MOCK_READ */
+
 static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
   int fd;
   ssize_t total_bytes_read, bytes_read, interval_bytes;
@@ -93,8 +101,7 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
   ui->PutChar(' ');
   ui->Redraw();
 
-  if ((fd = open(full_path.c_str(), O_RDONLY)) == -1)
-  {
+  if ((fd = open(full_path.c_str(), O_RDONLY)) == -1) {
     ui->PrintOnScreenOnly("couldn't be opened (errno: %d, %s)\n",
                           errno, strerror(errno));
     return 0.0;
@@ -103,14 +110,12 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
   total_bytes_read = 0;
   total_time = 0.0;
 
-  if ((sz = lseek(fd, 0, SEEK_END)) == -1)
-  {
+  if ((sz = lseek(fd, 0, SEEK_END)) == -1) {
     ui->PrintOnScreenOnly("could not seek to end of device "
                           "(errno: %d, %s)\n", errno, strerror(errno));
     goto seek_error;
   }
-  if (lseek(fd, 0, SEEK_SET) == -1)
-  {
+  if (lseek(fd, 0, SEEK_SET) == -1) {
     ui->PrintOnScreenOnly("could not seek back to start of device "
                           "(errno: %d, %s)\n", errno, strerror(errno));
     goto seek_error;
@@ -120,8 +125,7 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
   bytes_read = 0;
   interval_bytes = 0;
 
-  while (true)
-  {
+  while (true) {
     before_read_time = now();
 #ifdef MOCK_READ
     // bytes_read = mocked_read(fd, read_dst, READSZ);
@@ -132,12 +136,10 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
     total_time += (now() - before_read_time);
 
     /* TODO: handle error case (bytes_read = -1) and check errno */
-    if (bytes_read == 0)
-    {
+    if (bytes_read == 0) {
       break;
     }
-    else if (bytes_read == -1)
-    {
+    else if (bytes_read == -1) {
       ui->PrintOnScreenOnly("READ ERROR WHEN TRYING TO READ bytes: %zd, "
                             "MB #%zd (errno: %d, %s)\n",
                             total_bytes_read, (total_bytes_read/READSZ),
@@ -147,8 +149,7 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
        * read returns an error -- we want to try and continue reading
        * -- hopefully the next block we've seeked to is readable
        */
-      if (lseek(fd, (total_bytes_read + READSZ), SEEK_SET) == -1)
-      {
+      if (lseek(fd, (total_bytes_read + READSZ), SEEK_SET) == -1) {
         ui->PrintOnScreenOnly("Could not continue to read file after "
                               "read error -- left in undefined "
                               "position (errno: %d, %s)\n", errno,
@@ -157,16 +158,14 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
       }
       continue;
     }
-    if (ui->IsKeyPressed(KEY_VOLUMEDOWN))
-    {
+    if (ui->IsKeyPressed(KEY_VOLUMEDOWN)) {
       ui->PutChar('\n');
       return -1.0;
     }
 
     total_bytes_read += bytes_read;
     interval_bytes += bytes_read;
-    while (interval_bytes >= update_interval)
-    {
+    while (interval_bytes >= update_interval) {
       interval_bytes -= update_interval;
       ui->PutChar('.');
       ui->PutChar(' ');
@@ -218,14 +217,12 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
    * is wrong, it'll be picked up by another function later on down
    * the line when the file is being opened or read from
    */
-  if (stat(a_path.c_str(), &dirent_a_statbuf) == -1)
-  {
+  if (stat(a_path.c_str(), &dirent_a_statbuf) == -1) {
     // ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
     //                       a_path.c_str(), errno, strerror(errno));
     return 0;
   }
-  if (stat(b_path.c_str(), &dirent_b_statbuf) == -1)
-  {
+  if (stat(b_path.c_str(), &dirent_b_statbuf) == -1) {
     // ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
     //                       b_path.c_str(), errno, strerror(errno));
     return 0;
@@ -234,8 +231,7 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
   a_operand = major(dirent_a_statbuf.st_dev);
   b_operand = major(dirent_b_statbuf.st_dev);
 
-  if (a_operand == b_operand)
-  {
+  if (a_operand == b_operand) {
     a_operand = minor(dirent_a_statbuf.st_dev);
     b_operand = minor(dirent_b_statbuf.st_dev);
   }
@@ -270,34 +266,27 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
    * scandir(3)
    */
   num_devs = scandir(BLKDEV_DIR, &namelist, blkdev_filter, blkdev_compar);
-  if (num_devs < 0)
-  {
+  if (num_devs < 0) {
     ui->PrintOnScreenOnly("ERROR: could not scan %s (errno: %d, %s)",
                           BLKDEV_DIR, errno, strerror(errno));
     return;
   }
 
   longest_name = 0;
-  for (int x = 0; x < num_devs; ++x)
-  {
+  for (int x = 0; x < num_devs; ++x) {
     name_len = strlen(namelist[x]->d_name);
     if (name_len >= longest_name)
       longest_name = name_len;
   }
 
-  for (int x = 0; x < num_devs; ++x)
-  {
+  for (int x = 0; x < num_devs; ++x) {
     file_speed = read_dev(ui, namelist[x], read_dst, longest_name);
-    if (file_speed < 0.0)
-    {
+    if (file_speed < 0.0) {
       break;
     }
-    else if (file_speed > 0.0)
-    {
-#ifdef SPEED_AFTER_EVERY_DEV
+    else if (file_speed > 0.0) {
       /* TODO: some devices reads won't reach here (file_speed=0) -- diagnose */
       ui->PrintOnScreenOnly("Read speed (MB/s): %f\n", file_speed);
-#endif
       num_devs_read++;
       avg_speed += file_speed;
     }
@@ -321,8 +310,7 @@ void scan_storage(RecoveryUI* ui) {
 
   /* mmap here to properly align the buffer for faster writes */
   read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-  if (read_dst == MAP_FAILED)
-  {
+  if (read_dst == MAP_FAILED) {
     ui->PrintOnScreenOnly("Could not allocate space to dump the "
                           "read bytes into (errno: %d, %s)\n", errno,
                           strerror(errno));
