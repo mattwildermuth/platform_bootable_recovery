@@ -40,13 +40,13 @@ static double now() {
 
 #ifdef MOCK_READ
 
-static int mocked_read2(int fd, void* buf, size_t count, size_t dev_sz) {
+static int mocked_read2(int fd, void* buf, size_t count) {
   off_t dev_pos;
 
   if ((dev_pos = lseek(fd, 0, SEEK_CUR)) == -1)
     return -1;
 
-  if ((dev_pos/dev_sz) == 5)
+  if (((double)dev_pos/MB) == 1000.0)
     return -1;
 
   return read(fd, buf, count);
@@ -72,6 +72,8 @@ static int mocked_read(int fd, void* buf, size_t count) {
   //   return -1;
   if ((rand % 128) == 0)
     return -1;
+
+  close(rand_fd);
 
   return read(fd, buf, count);
 }
@@ -131,8 +133,8 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
   while (true) {
     before_read_time = now();
 #ifdef MOCK_READ
-    bytes_read = mocked_read(fd, read_dst, READSZ);
-    // bytes_read = mocked_read2(fd, read_dst, READSZ, sz);
+    // bytes_read = mocked_read(fd, read_dst, READSZ);
+    bytes_read = mocked_read2(fd, read_dst, READSZ);
 #else
     bytes_read = read(fd, read_dst, READSZ);
 #endif
@@ -166,7 +168,7 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
                               strerror(errno));
         goto seek_error;
       }
-      continue;
+      bytes_read = 0;
     }
     if (ui->IsKeyPressed(KEY_VOLUMEDOWN)) {
       ui->PutChar('\n');
