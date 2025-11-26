@@ -25,7 +25,7 @@
 // #define MOCK_READ
 
 /* cannot do the below because recoveryui is an abstract class :| */
-// static RecoveryUI ui;
+/* static RecoveryUI ui; */
 
 /*
  * TODO: REVIEW: this is an exact duplicate of the function in
@@ -62,24 +62,27 @@ static int mocked_read(int fd, void* buf, size_t count) {
   if ((rand = read(rand_fd, &rand, sizeof(rand))) == -1)
     return -1;
 
-  if ((rand % 997) == 0)
-    return -1;
+  // if ((rand % 997) == 0)
+  //   return -1;
   // if ((rand % (4096*1024)) == 0)
   //   return -1;
   // if ((rand % 4096) == 0)
   //   return -1;
   // if ((rand % 8) == 0)
   //   return -1;
+  if ((rand % 128) == 0)
+    return -1;
 
   return read(fd, buf, count);
 }
 
 #endif /* #ifdef MOCK_READ */
 
-static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, size_t longest_name) {
+static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
+                       size_t longest_name, ssize_t* total_bytes_read, ssize_t* num_errors) {
   int fd;
-  ssize_t total_bytes_read, bytes_read, interval_bytes;
-  ssize_t update_interval, sz;
+  bool printed_error;
+  ssize_t bytes_read, sz;
   ssize_t indent_len, name_len;
   double total_time, before_read_time;
 
@@ -107,7 +110,7 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
     return 0.0;
   }
 
-  total_bytes_read = 0;
+  *total_bytes_read = 0;
   total_time = 0.0;
 
   if ((sz = lseek(fd, 0, SEEK_END)) == -1) {
@@ -121,35 +124,42 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
     goto seek_error;
   }
 
-  update_interval = sz/20;
   bytes_read = 0;
-  interval_bytes = 0;
+  *num_errors = 0;
+  printed_error = false;
 
   while (true) {
     before_read_time = now();
 #ifdef MOCK_READ
-    // bytes_read = mocked_read(fd, read_dst, READSZ);
-    bytes_read = mocked_read2(fd, read_dst, READSZ, sz);
+    bytes_read = mocked_read(fd, read_dst, READSZ);
+    // bytes_read = mocked_read2(fd, read_dst, READSZ, sz);
 #else
     bytes_read = read(fd, read_dst, READSZ);
 #endif
     total_time += (now() - before_read_time);
 
-    /* TODO: handle error case (bytes_read = -1) and check errno */
     if (bytes_read == 0) {
       break;
     }
     else if (bytes_read == -1) {
-      ui->PrintOnScreenOnly("READ ERROR WHEN TRYING TO READ bytes: %zd, "
-                            "MB #%zd (errno: %d, %s)\n",
-                            total_bytes_read, (total_bytes_read/READSZ),
-                            errno, strerror(errno));
+      (*num_errors)++;
+      if (!printed_error) {
+        printed_error = true;
+        ui->PrintOnScreenOnly("READ ERROR at MB #%zd\n", (*total_bytes_read/READSZ));
+        for (int x = 0; x < (indent_len + name_len + 1); x++)
+          ui->PutChar(' ');
+        ui->Redraw();
+      }
+      // ui->PrintOnScreenOnly("READ ERROR WHEN TRYING TO READ bytes: %zd, "
+      //                       "MB #%zd (errno: %d, %s)\n",
+      //                       total_bytes_read, (total_bytes_read/READSZ),
+      //                       errno, strerror(errno));
       /*
        * the position of the file position pointer is undefined if
        * read returns an error -- we want to try and continue reading
        * -- hopefully the next block we've seeked to is readable
        */
-      if (lseek(fd, (total_bytes_read + READSZ), SEEK_SET) == -1) {
+      if (lseek(fd, (*total_bytes_read + READSZ), SEEK_SET) == -1) {
         ui->PrintOnScreenOnly("Could not continue to read file after "
                               "read error -- left in undefined "
                               "position (errno: %d, %s)\n", errno,
@@ -163,14 +173,7 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
       return -1.0;
     }
 
-    total_bytes_read += bytes_read;
-    interval_bytes += bytes_read;
-    while (interval_bytes >= update_interval) {
-      interval_bytes -= update_interval;
-      ui->PutChar('.');
-      ui->PutChar(' ');
-    }
-    ui->Redraw();
+    *total_bytes_read += bytes_read;
   }
 
   /*
@@ -179,16 +182,10 @@ static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst, si
    * printed sometimes would be a weird thing to a user
    */
 
-  /*
-   * Debatable whether we should call Print() here to force a redraw
-   * if this function is to be truly generic
-   */
-  ui->PutChar('\n');
-
  seek_error:
   close(fd);
 
-  return ((total_bytes_read/MB)/total_time);
+  return total_time;
 }
 
 static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** dirent_b) {
@@ -251,14 +248,69 @@ static int blkdev_filter(const struct dirent* dirent) {
   return dirent->d_type == DT_BLK || dirent->d_type == DT_LNK;
 }
 
-static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
-  int num_devs, num_devs_read;
-  size_t longest_name, name_len;
-  struct dirent** namelist;
-  double avg_speed, file_speed;
+static void print_legend(RecoveryUI* ui, size_t longest_name) {
+  int name_padding;
+  ui->PrintOnScreenOnly("Name");
 
-  num_devs_read = 0;
-  avg_speed = 0.0;
+  /* we should be fine here -- we will almost certainly have an 'sda' */
+  name_padding = (longest_name - 4);
+  for (int x = 0; x < (name_padding + 1); x++)
+    ui->PutChar(' ');
+
+  ui->PrintOnScreenOnly("MB Read      Speed (MB/s)     Errors\n");
+}
+
+static void print_stats(RecoveryUI* ui, double mb_read, double time_reading, ssize_t num_errors) {
+  double padding_mb_read, mb_per_sec;
+
+  /* TODO: fix -- this code hurts my eyes */
+
+  padding_mb_read = mb_read;
+  // ui->PrintOnScreenOnly("%.2f MB ", mb_read);
+  ui->PrintOnScreenOnly("%.2f ", mb_read);
+  /* the above statement will produce at least 3 chars -- we want to pad that*/
+  while (padding_mb_read < 1.0) {
+    padding_mb_read *= 10;
+  }
+  /* pad with maximum 3 characters (beyond 1GB is not padded) */
+  while (padding_mb_read < 1000.0) {
+    padding_mb_read *= 10;
+    ui->PutChar(' ');
+  }
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+
+  mb_per_sec = (mb_read/time_reading);
+  // ui->PrintOnScreenOnly("(%.4f MB/s), ", mb_per_sec);
+  ui->PrintOnScreenOnly("%.4f ", mb_per_sec);
+  while (mb_per_sec < 1000.0) {
+    mb_per_sec *= 10;
+    ui->PutChar(' ');
+  }
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+  ui->PutChar(' ');
+  ui->PrintOnScreenOnly("%zd\n", num_errors);
+}
+
+static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
+  int num_devs;
+  size_t longest_name, name_len;
+  ssize_t bytes_read, total_mb_read;
+  ssize_t num_errors;
+  struct dirent** namelist;
+  double time_reading, total_time_reading;
+  double mb_read, padding_mb_read, mb_per_sec;
+
+  total_mb_read = 0;
+  total_time_reading = 0.0;
 
   /*
    * https://www.gnu.org/software/libc/manual/html_node/Accessing-Directories.html
@@ -279,16 +331,23 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
       longest_name = name_len;
   }
 
+  print_legend(ui, longest_name);
+
   for (int x = 0; x < num_devs; ++x) {
-    file_speed = read_dev(ui, namelist[x], read_dst, longest_name);
-    if (file_speed < 0.0) {
+    bytes_read = 0;
+    num_errors = 0;
+    time_reading = read_dev(ui, namelist[x], read_dst,
+                            longest_name, &bytes_read, &num_errors);
+
+    if (time_reading < 0.0) {
       break;
     }
-    else if (file_speed > 0.0) {
-      /* TODO: some devices reads won't reach here (file_speed=0) -- diagnose */
-      ui->PrintOnScreenOnly("Read speed (MB/s): %f\n", file_speed);
-      num_devs_read++;
-      avg_speed += file_speed;
+    else if (time_reading > 0.0) {
+      mb_read = ((double)bytes_read/MB);
+      total_mb_read += mb_read;
+      total_time_reading += time_reading;
+
+      print_stats(ui, mb_read, time_reading, num_errors);
     }
   }
 
@@ -296,8 +355,8 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
     free(namelist[x]);
   free(namelist);
 
-  ui->PrintOnScreenOnly("Average read speed (MB/s): %f\n",
-                        (avg_speed/num_devs_read));
+  ui->PrintOnScreenOnly("Average read speed: %.4f MB/s\n",
+                        (total_mb_read/total_time_reading));
 }
 
 void scan_storage(RecoveryUI* ui) {
