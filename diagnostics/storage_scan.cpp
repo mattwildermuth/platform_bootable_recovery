@@ -40,7 +40,7 @@ static double now() {
 
 #ifdef MOCK_READ
 
-static int mocked_read2(int fd, void* buf, size_t count) {
+static int mocked_read(int fd, void* buf, size_t count) {
   off_t dev_pos;
 
   if ((dev_pos = lseek(fd, 0, SEEK_CUR)) == -1)
@@ -48,24 +48,6 @@ static int mocked_read2(int fd, void* buf, size_t count) {
 
   if (((double)dev_pos/MB) == 1000.0)
     return -1;
-
-  return read(fd, buf, count);
-}
-
-static int mocked_read(int fd, void* buf, size_t count) {
-  int rand_fd;
-  size_t rand;
-
-  if ((rand_fd = open("/dev/urandom", O_RDONLY)) == -1)
-    return -1;
-
-  if ((rand = read(rand_fd, &rand, sizeof(rand))) == -1)
-    return -1;
-
-  if ((rand % 128) == 0)
-    return -1;
-
-  close(rand_fd);
 
   return read(fd, buf, count);
 }
@@ -125,8 +107,7 @@ static double storage_scan(RecoveryUI* ui, struct dirent* dirent, void* read_dst
   while (true) {
     before_read_time = now();
 #ifdef MOCK_READ
-    // bytes_read = mocked_read(fd, read_dst, READSZ);
-    bytes_read = mocked_read2(fd, read_dst, READSZ);
+    bytes_read = mocked_read(fd, read_dst, READSZ);
 #else
     bytes_read = read(fd, read_dst, READSZ);
 #endif
