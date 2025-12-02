@@ -1,4 +1,4 @@
-#include <diagnostics/read_dev.h>
+#include <diagnostics/storage_scan.h>
 
 #include <string.h>
 
@@ -62,14 +62,6 @@ static int mocked_read(int fd, void* buf, size_t count) {
   if ((rand = read(rand_fd, &rand, sizeof(rand))) == -1)
     return -1;
 
-  // if ((rand % 997) == 0)
-  //   return -1;
-  // if ((rand % (4096*1024)) == 0)
-  //   return -1;
-  // if ((rand % 4096) == 0)
-  //   return -1;
-  // if ((rand % 8) == 0)
-  //   return -1;
   if ((rand % 128) == 0)
     return -1;
 
@@ -80,8 +72,8 @@ static int mocked_read(int fd, void* buf, size_t count) {
 
 #endif /* #ifdef MOCK_READ */
 
-static double read_dev(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
-                       size_t longest_name, ssize_t* total_bytes_read, ssize_t* num_errors) {
+static double storage_scan(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
+                           size_t longest_name, ssize_t* total_bytes_read, ssize_t* num_errors) {
   int fd;
   bool printed_error;
   ssize_t bytes_read, sz;
@@ -338,8 +330,8 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   for (int x = 0; x < num_devs; ++x) {
     bytes_read = 0;
     num_errors = 0;
-    time_reading = read_dev(ui, namelist[x], read_dst,
-                            longest_name, &bytes_read, &num_errors);
+    time_reading = storage_scan(ui, namelist[x], read_dst,
+                                longest_name, &bytes_read, &num_errors);
 
     if (time_reading < 0.0) {
       break;
