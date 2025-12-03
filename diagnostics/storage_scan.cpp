@@ -29,143 +29,6 @@
 /* cannot do the below because recoveryui is an abstract class :| */
 /* static RecoveryUI ui; */
 
-/*
- * TODO: REVIEW: this is an exact duplicate of the function in
- * recovery_ui/screen_ui.cpp. Consider engineering something to remove
- * this duplicate definition
- */
-static double now() {
-  struct timeval tv;
-  gettimeofday(&tv, nullptr);
-  return tv.tv_sec + tv.tv_usec / 1000000.0;
-}
-
-#ifdef MOCK_READ
-
-static int mocked_read(int fd, void* buf, size_t count) {
-  off_t dev_pos;
-  double dev_pos_mb;
-
-  if ((dev_pos = lseek(fd, 0, SEEK_CUR)) == -1)
-    return -1;
-
-  dev_pos_mb = ((double)dev_pos/MB);
-  if (std::fmod(dev_pos_mb, 1000.0) == 0.0 && dev_pos != 0)
-    return -1;
-
-  return read(fd, buf, count);
-}
-
-#endif /* #ifdef MOCK_READ */
-
-static double storage_scan(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
-                           size_t longest_name, ssize_t* total_bytes_read, ssize_t* num_errors) {
-  int fd;
-  ssize_t bytes_read, sz;
-  ssize_t indent_len, name_len;
-  double total_time, before_read_time;
-  off_t fd_pos;
-
-  std::string full_path(BLKDEV_DIR);
-  full_path += dirent->d_name;
-
-  name_len = strlen(dirent->d_name);
-  if (name_len >= longest_name)
-    indent_len = 0;
-  else
-    indent_len = longest_name - name_len;
-
-  /* Use PutChar to avoid redrawing the screen */
-  for (int x = 0; x < name_len; x++)
-    ui->PutChar(dirent->d_name[x]);
-  for (int x = 0; x < indent_len; x++)
-    ui->PutChar(' ');
-
-  ui->PutChar(' ');
-  ui->Redraw();
-
-  if ((fd = open(full_path.c_str(), O_RDONLY)) == -1) {
-    ui->PrintOnScreenOnly("couldn't be opened (errno: %d, %s)\n",
-                          errno, strerror(errno));
-    return 0.0;
-  }
-
-  *total_bytes_read = 0;
-  total_time = 0.0;
-
-  if ((sz = lseek(fd, 0, SEEK_END)) == -1) {
-    ui->PrintOnScreenOnly("could not seek to end of device "
-                          "(errno: %d, %s)\n", errno, strerror(errno));
-    goto seek_error;
-  }
-  if (lseek(fd, 0, SEEK_SET) == -1) {
-    ui->PrintOnScreenOnly("could not seek back to start of device "
-                          "(errno: %d, %s)\n", errno, strerror(errno));
-    goto seek_error;
-  }
-
-  bytes_read = 0;
-  *num_errors = 0;
-  fd_pos = 0;
-
-  while (true) {
-    before_read_time = now();
-#ifdef MOCK_READ
-    bytes_read = mocked_read(fd, read_dst, READSZ);
-#else
-    bytes_read = read(fd, read_dst, READSZ);
-#endif
-    total_time += (now() - before_read_time);
-
-    if (bytes_read == 0) {
-      break;
-    }
-    else if (bytes_read == -1) {
-      if (*num_errors < 5) {
-        ui->PrintOnScreenOnly("\nREAD ERROR at MB #%zd\n", (fd_pos/READSZ));
-        for (int x = 0; x < (indent_len + name_len + 1); x++)
-          ui->PutChar(' ');
-      }
-      (*num_errors)++;
-      // ui->PrintOnScreenOnly("READ ERROR WHEN TRYING TO READ bytes: %zd, "
-      //                       "MB #%zd (errno: %d, %s)\n",
-      //                       total_bytes_read, (total_bytes_read/READSZ),
-      //                       errno, strerror(errno));
-      /*
-       * the position of the file position pointer is undefined if
-       * read returns an error -- we want to try and continue reading
-       * -- hopefully the next block we've seeked to is readable
-       */
-      if (lseek(fd, (fd_pos + READSZ), SEEK_SET) == -1) {
-        ui->PrintOnScreenOnly("Could not continue to read file after "
-                              "read error -- left in undefined "
-                              "position (errno: %d, %s)\n", errno,
-                              strerror(errno));
-        goto seek_error;
-      }
-      bytes_read = 0;
-    }
-    if (ui->IsKeyPressed(KEY_VOLUMEDOWN)) {
-      ui->PutChar('\n');
-      return -1.0;
-    }
-
-    *total_bytes_read += bytes_read;
-    fd_pos += READSZ;
-  }
-
-  /*
-   * technically, we could still have interval_bytes != 0 here -- we
-   * shouldn't print anything though because an extra dot being
-   * printed sometimes would be a weird thing to a user
-   */
-
- seek_error:
-  close(fd);
-
-  return total_time;
-}
-
 static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** dirent_b) {
   int compar_result;
   struct stat dirent_a_statbuf, dirent_b_statbuf;
@@ -227,60 +90,230 @@ static int blkdev_filter(const struct dirent* dirent) {
 }
 
 static void print_legend(RecoveryUI* ui, size_t longest_name) {
-  int name_padding;
-  ui->PrintOnScreenOnly("Name");
-
-  /* we should be fine here -- we will almost certainly have an 'sda' */
-  name_padding = (longest_name - 4);
-  for (int x = 0; x < (name_padding + 1); x++)
-    ui->PutChar(' ');
-
-  ui->PrintOnScreenOnly("MB Read      Speed (MB/s)     Errors\n");
+  ui->PrintOnScreenOnly("Name%*s MB Read      Speed (MB/s)     Errors\n", (int)(longest_name - 4), " ");
 }
 
-static void print_stats(RecoveryUI* ui, double mb_read, double time_reading, ssize_t num_errors) {
-  double padding_mb_read, mb_per_sec;
+static void print_dev_name(RecoveryUI* ui, size_t longest_name, struct dirent* dirent) {
+  size_t name_len, indent_len;
 
-  /* TODO: fix -- this code hurts my eyes */
+  /* strlen should not return a negative here */
+  name_len = strlen(dirent->d_name);
+  indent_len = longest_name - name_len;
 
-  padding_mb_read = mb_read;
-  // ui->PrintOnScreenOnly("%.2f MB ", mb_read);
-  ui->PrintOnScreenOnly("%.2f ", mb_read);
-  /* the above statement will produce at least 3 chars -- we want to pad that*/
-  while (padding_mb_read < 1.0) {
-    padding_mb_read *= 10;
-  }
-  /* pad with maximum 3 characters (beyond 1GB is not padded) */
-  while (padding_mb_read < 1000.0) {
-    padding_mb_read *= 10;
-    ui->PutChar(' ');
-  }
-  ui->PutChar(' ');
-  ui->PutChar(' ');
-  ui->PutChar(' ');
-  ui->PutChar(' ');
-  ui->PutChar(' ');
+  ui->PrintOnScreenOnly("%s %*s", dirent->d_name, (int)indent_len, " ");
+}
 
+static int get_mb_read_padding(double mb_read, int longest_sz) {
+  int num_chars = 0; /* num chars it takes to display the number */
+  double padding_mb_read = mb_read;
+  int longest_num_chars = 0;
+  double padding_longest_sz = (double)longest_sz;
+
+  for (; padding_longest_sz >= 1.0; longest_num_chars++)
+    padding_longest_sz /= 10;
+  for (; padding_mb_read >= 1.0; num_chars++)
+    padding_mb_read /= 10;
+  return (longest_num_chars - num_chars);
+}
+
+static void print_stats(RecoveryUI* ui, double mb_read, double longest_sz,
+                        double time_reading, ssize_t num_errors) {
+  double mb_per_sec;
+  int mb_read_len, mb_per_sec_len;
+  int mb_read_padding, mb_per_sec_padding;
+
+  /* if the size read is less than a MB */
+  mb_read_len = (int)std::log10(mb_read);
+  if (mb_read_len < 0)
+    mb_read_len = 0;
+
+  mb_read_padding = ((int)std::log10(longest_sz)+1) - mb_read_len;
   mb_per_sec = (mb_read/time_reading);
-  // ui->PrintOnScreenOnly("(%.4f MB/s), ", mb_per_sec);
-  ui->PrintOnScreenOnly("%.2f ", mb_per_sec);
-  while (mb_per_sec < 1000.0) {
-    mb_per_sec *= 10;
-    ui->PutChar(' ');
+  mb_per_sec_len = (int)std::log10(mb_per_sec);
+  if (mb_per_sec_len < 0)
+    mb_per_sec_len = 0;
+  mb_per_sec_padding = 5 - mb_per_sec_len; /* should always be positive... */
+
+  // ui->PrintOnScreenOnly("(%d-%d)", (int)std::log10(longest_sz), mb_read_len);
+
+  ui->PrintOnScreenOnly("%.2f%*s%.2f%*s %zd\n", mb_read, mb_read_padding, " ", mb_per_sec, mb_per_sec_padding, " ", num_errors);
+}
+
+/*
+ * TODO: REVIEW: this is an exact duplicate of the function in
+ * recovery_ui/screen_ui.cpp. Consider engineering something to remove
+ * this duplicate definition
+ */
+static double now() {
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  return tv.tv_sec + tv.tv_usec / 1000000.0;
+}
+
+#ifdef MOCK_READ
+
+static int mocked_read(int fd, void* buf, size_t count) {
+  off_t dev_pos;
+  double dev_pos_mb;
+
+  if ((dev_pos = lseek(fd, 0, SEEK_CUR)) == -1)
+    return -1;
+
+  dev_pos_mb = ((double)dev_pos/MB);
+  if (std::fmod(dev_pos_mb, 1000.0) == 0.0 && dev_pos != 0)
+    return -1;
+
+  return read(fd, buf, count);
+}
+
+#endif /* #ifdef MOCK_READ */
+
+/* assumes file position was initially at 0 */
+static int get_file_sz(RecoveryUI* ui, int fd, off_t* sz) {
+  if ((*sz = lseek(fd, 0, SEEK_END)) == -1) {
+    ui->PrintOnScreenOnly("could not seek to end of device "
+                          "(errno: %d, %s)\n", errno, strerror(errno));
+    return 1;
   }
-  ui->PutChar(' ');
-  ui->PutChar(' ');
-  ui->PutChar(' ');
-  ui->PutChar(' ');
-  ui->PutChar(' ');
-  ui->PutChar(' ');
-  ui->PutChar(' ');
-  ui->PrintOnScreenOnly("%zd\n", num_errors);
+  if (lseek(fd, 0, SEEK_SET) == -1) {
+    ui->PrintOnScreenOnly("could not seek back to start of device "
+                          "(errno: %d, %s)\n", errno, strerror(errno));
+    return 1;
+  }
+  return 0;
+}
+
+static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
+                          ssize_t* total_bytes_read, ssize_t* num_errors) {
+  int fd;
+  ssize_t bytes_read;
+  double total_time, before_read_time;
+  off_t sz, fd_pos;
+
+  std::string full_path(BLKDEV_DIR);
+  full_path += dirent->d_name;
+
+  if ((fd = open(full_path.c_str(), O_RDONLY)) == -1) {
+    ui->PrintOnScreenOnly("couldn't be opened (errno: %d, %s)\n",
+                          errno, strerror(errno));
+    return 0.0;
+  }
+
+  *total_bytes_read = 0;
+  total_time = 0.0;
+
+  if (get_file_sz(ui, fd, &sz)) {
+    goto seek_error;
+  }
+
+  bytes_read = 0;
+  *num_errors = 0;
+  fd_pos = 0;
+
+  while (true) {
+    before_read_time = now();
+#ifdef MOCK_READ
+    bytes_read = mocked_read(fd, read_dst, READSZ);
+#else
+    bytes_read = read(fd, read_dst, READSZ);
+#endif
+    total_time += (now() - before_read_time);
+
+    if (bytes_read == 0) {
+      break;
+    } else if (bytes_read == -1) {
+      if (*num_errors < 5) {
+        if (*num_errors == 0)
+          ui->PutChar('\n');
+        ui->PrintOnScreenOnly("READ ERROR at MB #%zd\n", (fd_pos/READSZ));
+      }
+      (*num_errors)++;
+      // ui->PrintOnScreenOnly("READ ERROR WHEN TRYING TO READ bytes: %zd, "
+      //                       "MB #%zd (errno: %d, %s)\n",
+      //                       total_bytes_read, (total_bytes_read/READSZ),
+      //                       errno, strerror(errno));
+      /*
+       * the position of the file position pointer is undefined if
+       * read returns an error -- we want to try and continue reading
+       * -- hopefully the next block we've seeked to is readable
+       */
+      if (lseek(fd, (fd_pos + READSZ), SEEK_SET) == -1) {
+        ui->PrintOnScreenOnly("Could not continue to read file after "
+                              "read error -- left in undefined "
+                              "position (errno: %d, %s)\n", errno,
+                              strerror(errno));
+        goto seek_error;
+      }
+      bytes_read = 0;
+    }
+    if (ui->IsKeyPressed(KEY_VOLUMEDOWN)) {
+      ui->PutChar('\n');
+      return -1.0;
+    }
+
+    *total_bytes_read += bytes_read;
+    fd_pos += READSZ;
+  }
+
+  /*
+   * technically, we could still have interval_bytes != 0 here -- we
+   * shouldn't print anything though because an extra dot being
+   * printed sometimes would be a weird thing to a user
+   */
+
+ seek_error:
+  close(fd);
+
+  return total_time;
+}
+
+static size_t get_longest_name(struct dirent** namelist, int num_devs) {
+  size_t longest_name, name_len;
+  longest_name = 0;
+  for (int x = 0; x < num_devs; ++x) {
+    name_len = strlen(namelist[x]->d_name);
+    if (name_len >= longest_name)
+      longest_name = name_len;
+  }
+  return longest_name;
+}
+
+static int get_longest_sz(RecoveryUI* ui, struct dirent** namelist,
+                          int num_devs, double* longest_sz) {
+  int fd;
+  off_t sz;
+  double sz_mb;
+  std::string dir_path(BLKDEV_DIR);
+  std::string full_path;
+
+  *longest_sz = 0.0;
+  for (int x = 0; x < num_devs; ++x) {
+    full_path = dir_path + namelist[x]->d_name;
+    if ((fd = open(full_path.c_str(), O_RDONLY)) == -1) {
+      ui->PrintOnScreenOnly("couldn't be opened (errno: %d, %s)\n",
+                            errno, strerror(errno));
+      return 1;
+    }
+
+    if (get_file_sz(ui, fd, &sz)) {
+      close(fd);
+      return 1;
+    }
+
+    sz_mb = ((double)sz)/MB;
+    if (sz_mb >= *longest_sz)
+      *longest_sz = sz_mb;
+
+    close(fd);
+  }
+  
+  return 0;
 }
 
 static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   int num_devs;
-  size_t longest_name, name_len;
+  double longest_sz;
+  size_t longest_name;
   ssize_t bytes_read, total_mb_read;
   ssize_t num_errors;
   struct dirent** namelist;
@@ -302,30 +335,35 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
     return;
   }
 
-  longest_name = 0;
-  for (int x = 0; x < num_devs; ++x) {
-    name_len = strlen(namelist[x]->d_name);
-    if (name_len >= longest_name)
-      longest_name = name_len;
-  }
+  longest_name = get_longest_name(namelist, num_devs);
+  if (get_longest_sz(ui, namelist, num_devs, &longest_sz))
+    return;
+
+  ui->PrintOnScreenOnly("longest_name: %zd, longest_sz: %.6f, ls pad: %d\n", longest_name, longest_sz, ((int)std::log10(longest_sz)));
 
   print_legend(ui, longest_name);
 
   for (int x = 0; x < num_devs; ++x) {
     bytes_read = 0;
     num_errors = 0;
-    time_reading = storage_scan(ui, namelist[x], read_dst,
-                                longest_name, &bytes_read, &num_errors);
+
+    print_dev_name(ui, longest_name, namelist[x]);
+    
+    time_reading = scan_device(ui, namelist[x], read_dst, &bytes_read, &num_errors);
 
     if (time_reading < 0.0) {
+      /* TODO: print *something* indicating error */
       break;
-    }
-    else if (time_reading > 0.0) {
+    } else if (time_reading > 0.0) {
       mb_read = ((double)bytes_read/MB);
       total_mb_read += mb_read;
       total_time_reading += time_reading;
 
-      print_stats(ui, mb_read, time_reading, num_errors);
+      if (num_errors > 0)
+        for (int x = 0; x < (longest_name + 1); x++)
+          ui->PutChar(' ');
+
+      print_stats(ui, mb_read, longest_sz, time_reading, num_errors);
     }
   }
 
