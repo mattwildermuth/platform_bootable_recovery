@@ -13,6 +13,8 @@
 #include <sys/mman.h>
 #include <sys/sysmacros.h>
 
+#include <cmath>
+
 #define MB (1024 * 1024)
 #define READSZ (MB)
 #define BLKDEV_DIR "/dev/block/by-name/"
@@ -22,7 +24,7 @@
  * it takes to it the second time (after no changes)
  */
 
-// #define MOCK_READ
+#define MOCK_READ
 
 /* cannot do the below because recoveryui is an abstract class :| */
 /* static RecoveryUI ui; */
@@ -42,11 +44,13 @@ static double now() {
 
 static int mocked_read(int fd, void* buf, size_t count) {
   off_t dev_pos;
+  double dev_pos_mb;
 
   if ((dev_pos = lseek(fd, 0, SEEK_CUR)) == -1)
     return -1;
 
-  if (((double)dev_pos/MB) == 1000.0)
+  dev_pos_mb = ((double)dev_pos/MB);
+  if (std::fmod(dev_pos_mb, 1000.0) == 0.0 && dev_pos != 0)
     return -1;
 
   return read(fd, buf, count);
@@ -57,10 +61,10 @@ static int mocked_read(int fd, void* buf, size_t count) {
 static double storage_scan(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
                            size_t longest_name, ssize_t* total_bytes_read, ssize_t* num_errors) {
   int fd;
-  bool printed_error;
   ssize_t bytes_read, sz;
   ssize_t indent_len, name_len;
   double total_time, before_read_time;
+  off_t fd_pos;
 
   std::string full_path(BLKDEV_DIR);
   full_path += dirent->d_name;
@@ -102,7 +106,7 @@ static double storage_scan(RecoveryUI* ui, struct dirent* dirent, void* read_dst
 
   bytes_read = 0;
   *num_errors = 0;
-  printed_error = false;
+  fd_pos = 0;
 
   while (true) {
     before_read_time = now();
@@ -117,14 +121,12 @@ static double storage_scan(RecoveryUI* ui, struct dirent* dirent, void* read_dst
       break;
     }
     else if (bytes_read == -1) {
-      (*num_errors)++;
-      if (!printed_error) {
-        printed_error = true;
-        ui->PrintOnScreenOnly("READ ERROR at MB #%zd\n", (*total_bytes_read/READSZ));
+      if (*num_errors < 5) {
+        ui->PrintOnScreenOnly("\nREAD ERROR at MB #%zd\n", (fd_pos/READSZ));
         for (int x = 0; x < (indent_len + name_len + 1); x++)
           ui->PutChar(' ');
-        ui->Redraw();
       }
+      (*num_errors)++;
       // ui->PrintOnScreenOnly("READ ERROR WHEN TRYING TO READ bytes: %zd, "
       //                       "MB #%zd (errno: %d, %s)\n",
       //                       total_bytes_read, (total_bytes_read/READSZ),
@@ -134,7 +136,7 @@ static double storage_scan(RecoveryUI* ui, struct dirent* dirent, void* read_dst
        * read returns an error -- we want to try and continue reading
        * -- hopefully the next block we've seeked to is readable
        */
-      if (lseek(fd, (*total_bytes_read + READSZ), SEEK_SET) == -1) {
+      if (lseek(fd, (fd_pos + READSZ), SEEK_SET) == -1) {
         ui->PrintOnScreenOnly("Could not continue to read file after "
                               "read error -- left in undefined "
                               "position (errno: %d, %s)\n", errno,
@@ -149,6 +151,7 @@ static double storage_scan(RecoveryUI* ui, struct dirent* dirent, void* read_dst
     }
 
     *total_bytes_read += bytes_read;
+    fd_pos += READSZ;
   }
 
   /*
@@ -260,7 +263,7 @@ static void print_stats(RecoveryUI* ui, double mb_read, double time_reading, ssi
 
   mb_per_sec = (mb_read/time_reading);
   // ui->PrintOnScreenOnly("(%.4f MB/s), ", mb_per_sec);
-  ui->PrintOnScreenOnly("%.4f ", mb_per_sec);
+  ui->PrintOnScreenOnly("%.2f ", mb_per_sec);
   while (mb_per_sec < 1000.0) {
     mb_per_sec *= 10;
     ui->PutChar(' ');
@@ -330,7 +333,7 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
     free(namelist[x]);
   free(namelist);
 
-  ui->PrintOnScreenOnly("Average read speed: %.4f MB/s\n",
+  ui->PrintOnScreenOnly("Average read speed: %.2f MB/s\n",
                         (total_mb_read/total_time_reading));
 }
 
