@@ -329,22 +329,18 @@ static double scan_device(struct dirent* dirent, void* read_dst,
 }
 
 static void do_scan_storage(void* read_dst) {
-  int num_devs;
   int longest_name, longest_sz, longest_speed, longest_error;
-  ssize_t bytes_read, total_mb_read;
-  ssize_t num_errors;
+
+  double mb_read, total_mb_read;
+  ssize_t bytes_read, num_errors;
+
+  int num_devs;
   struct dirent** namelist;
   double time_reading, total_time_reading;
-  double mb_read, padding_mb_read, mb_per_sec;
 
-  total_mb_read = 0;
+  total_mb_read = 0.0;
   total_time_reading = 0.0;
 
-  /*
-   * https://www.gnu.org/software/libc/manual/html_node/Accessing-Directories.html
-   *
-   * scandir(3)
-   */
   num_devs = scandir(BLKDEV_DIR, &namelist, blkdev_filter, blkdev_compar);
   if (num_devs < 0) {
     ui->PrintOnScreenOnly("ERROR: could not scan %s (errno: %d, %s)",
@@ -370,7 +366,7 @@ static void do_scan_storage(void* read_dst) {
                                &num_errors, longest_name, longest_sz);
 
     if (time_reading < 0.0) {
-      /* TODO: print *something* indicating error */
+      /* This is just the case where we volume down and quit early */
       break;
     } else if (time_reading > 0.0) {
       mb_read = ((double)bytes_read/MB);
