@@ -630,10 +630,6 @@ RecoveryUI::KeyAction RecoveryUI::CheckKey(int key, bool is_long_press) {
 
 void RecoveryUI::ClearText() {}
 
-void RecoveryUI::PutChar(char) {}
-
-void RecoveryUI::Redraw() {}
-
 void RecoveryUI::KeyLongPress(int) {}
 
 void RecoveryUI::SetEnableReboot(bool enabled) {

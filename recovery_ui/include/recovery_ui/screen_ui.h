@@ -221,10 +221,6 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   void PrintOnScreenOnly(const char* fmt, ...) override __printflike(2, 3);
   void ShowFile(const std::string& filename) override;
 
-  void ClearText() override;
-  void PutChar(char ch) override;
-  void Redraw() override;
-
   // menu display
   size_t ShowMenu(const std::vector<std::string>& headers, const std::vector<std::string>& items,
                   size_t initial_selection, bool menu_only,
@@ -232,6 +228,8 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
   void SetTitle(const std::vector<std::string>& lines) override;
 
   void KeyLongPress(int) override;
+
+  void Redraw();
 
   // Checks the background text image, for debugging purpose. It iterates the locales embedded in
   // the on-device resource files and shows the localized text, for manual inspection.
@@ -308,6 +306,8 @@ class ScreenRecoveryUI : public RecoveryUI, public DrawInterface {
 
   virtual void ShowFile(FILE*);
   virtual void PrintV(const char*, bool, va_list);
+  void PutChar(char);
+  void ClearText() override;
 
   virtual void LoadAnimation();
   std::unique_ptr<GRSurface> LoadBitmap(const std::string& filename);

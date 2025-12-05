@@ -295,7 +295,7 @@ static double scan_device(struct dirent* dirent, void* read_dst,
     } else if (bytes_read == -1) {
       if (*num_errors < 5) {
         if (*num_errors == 0)
-          ui->PutChar('\n');
+          ui->PrintOnScreenOnly("\n");
         ui->PrintOnScreenOnly("%*s offset: %ld size: %d\n%*s %s\n",
                               (longest_name+longest_sz+1), "READ ERROR:",
                               fd_pos, READSZ,
@@ -319,7 +319,7 @@ static double scan_device(struct dirent* dirent, void* read_dst,
       bytes_read = 0;
     }
     if (ui->IsKeyPressed(KEY_VOLUMEDOWN)) {
-      ui->PutChar('\n');
+      ui->PrintOnScreenOnly("\n");
       return -1.0;
     }
 
