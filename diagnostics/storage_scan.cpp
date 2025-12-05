@@ -333,15 +333,32 @@ static double scan_device(struct dirent* dirent, void* read_dst,
   return total_time;
 }
 
-static void do_scan_storage(void* read_dst) {
+void scan_storage(RecoveryUI* current_ui) {
   int longest_name, longest_sz, longest_speed, longest_error;
 
+  void* read_dst;
   double mb_read, total_mb_read;
   ssize_t bytes_read, num_errors;
+  double time_reading, total_time_reading;
 
   int num_devs;
   struct dirent** namelist;
-  double time_reading, total_time_reading;
+
+  ui = current_ui;
+
+  ui->ClearText();
+
+  ui->PrintOnScreenOnly("Scanning block devices in %s for bad sectors\n"
+                        "\n\nHold volume down to cancel\n\n", BLKDEV_DIR);
+
+  /* mmap here to properly align the buffer for faster writes */
+  read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+  if (read_dst == MAP_FAILED) {
+    ui->PrintOnScreenOnly("Could not allocate space to dump the "
+                          "read bytes into (errno: %d, %s)\n", errno,
+                          strerror(errno));
+    return;
+  }
 
   total_mb_read = 0.0;
   total_time_reading = 0.0;
@@ -391,26 +408,4 @@ static void do_scan_storage(void* read_dst) {
 
   ui->PrintOnScreenOnly("Average read speed: %.2f MB/s\n",
                         (total_mb_read/total_time_reading));
-}
-
-void scan_storage(RecoveryUI* current_ui) {
-  void* read_dst;
-
-  ui = current_ui;
-
-  ui->ClearText();
-
-  ui->PrintOnScreenOnly("Scanning block devices in %s for bad sectors\n"
-                        "\n\nHold volume down to cancel\n\n", BLKDEV_DIR);
-
-  /* mmap here to properly align the buffer for faster writes */
-  read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-  if (read_dst == MAP_FAILED) {
-    ui->PrintOnScreenOnly("Could not allocate space to dump the "
-                          "read bytes into (errno: %d, %s)\n", errno,
-                          strerror(errno));
-    return;
-  }
-
-  do_scan_storage(read_dst);
 }
