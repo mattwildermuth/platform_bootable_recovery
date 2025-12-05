@@ -31,8 +31,7 @@
 
 #define MOCK_READ
 
-/* TODO: change this to a pointer and use */
-/* static RecoveryUI ui; */
+static RecoveryUI* ui;
 
 /* TODO: consider making the longest sizes global */
 
@@ -65,7 +64,7 @@ static int mocked_read(int fd, void* buf, size_t count) {
 
 #endif /* #ifdef MOCK_READ */
 
-static void print_legend(RecoveryUI* ui, int longest_name, int longest_sz,
+static void print_legend(int longest_name, int longest_sz,
                          int longest_speed, int longest_error) {
   ui->PrintOnScreenOnly("%-*s %*s    %*s    %*s\n",
                         longest_name, LEGEND_NAME,
@@ -74,17 +73,16 @@ static void print_legend(RecoveryUI* ui, int longest_name, int longest_sz,
                         longest_error, LEGEND_ERRORS);
 }
 
-static void print_dev_name(RecoveryUI* ui, int longest_name, struct dirent* dirent) {
+static void print_dev_name(int longest_name, struct dirent* dirent) {
   ui->PrintOnScreenOnly("%-*s ", longest_name, dirent->d_name);
 }
 
-static void print_dev_name_spacing(RecoveryUI* ui, int longest_name) {
+static void print_dev_name_spacing(int longest_name) {
   ui->PrintOnScreenOnly("%-*s ", longest_name, "");
 }
 
-static void print_stats(RecoveryUI* ui, double mb_read, int longest_sz,
-                        double time_reading, int longest_speed, ssize_t num_errors,
-                        int longest_error) {
+static void print_stats(double mb_read, int longest_sz, double time_reading,
+                        int longest_speed, ssize_t num_errors, int longest_error) {
   ui->PrintOnScreenOnly("%*.2f    %*.2f    %*zd\n",
                         longest_sz, mb_read,
                         longest_speed, (mb_read/time_reading),
@@ -92,7 +90,7 @@ static void print_stats(RecoveryUI* ui, double mb_read, int longest_sz,
 }
 
 /* assumes file position was initially at 0 */
-static int get_file_sz(RecoveryUI* ui, int fd, off_t* sz) {
+static int get_file_sz(int fd, off_t* sz) {
   if ((*sz = lseek(fd, 0, SEEK_END)) == -1) {
     ui->PrintOnScreenOnly("could not seek to end of device "
                           "(errno: %d, %s)\n", errno, strerror(errno));
@@ -118,8 +116,7 @@ static int get_longest_name(struct dirent** namelist, int num_devs) {
   return (int)longest_name;
 }
 
-static int get_longest_sz(RecoveryUI* ui, struct dirent** namelist,
-                            int num_devs, int* longest_sz) {
+static int get_longest_sz(struct dirent** namelist, int num_devs, int* longest_sz) {
   int fd;
   int min_read_len;
   off_t sz;
@@ -136,7 +133,7 @@ static int get_longest_sz(RecoveryUI* ui, struct dirent** namelist,
       return 1;
     }
 
-    if (get_file_sz(ui, fd, &sz)) {
+    if (get_file_sz(fd, &sz)) {
       close(fd);
       return 1;
     }
@@ -196,29 +193,21 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
   b_path += (*dirent_b)->d_name;
 
   /*
-   * TODO: What do we do on error?
+   * TODO: What do we do on stat error?
    *
    * Could we read the device if this fails?
-   * How screwed are we if stat fails?
    * How do we communicate that an error happend up the chain?
    * Exiting here would feel extreme, but is it even possible to do
    *   that in this 'callback'?
-   *
-   * the ui variable is also not available here atm -- is it worth
-   * even trying to make global if we can't even bail?
-   *
-   * Hopefully, if we haven't managed to stat here and something else
-   * is wrong, it'll be picked up by another function later on down
-   * the line when the file is being opened or read from
    */
   if (stat(a_path.c_str(), &dirent_a_statbuf) == -1) {
-    // ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
-    //                       a_path.c_str(), errno, strerror(errno));
+    ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
+                          a_path.c_str(), errno, strerror(errno));
     return 0;
   }
   if (stat(b_path.c_str(), &dirent_b_statbuf) == -1) {
-    // ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
-    //                       b_path.c_str(), errno, strerror(errno));
+    ui->PrintOnScreenOnly("COULD NOT STAT %s (errno: %d, %s)\n",
+                          b_path.c_str(), errno, strerror(errno));
     return 0;
   }
 
@@ -245,8 +234,9 @@ static int blkdev_filter(const struct dirent* dirent) {
   return dirent->d_type == DT_BLK || dirent->d_type == DT_LNK;
 }
 
-static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
-                          ssize_t* total_bytes_read, ssize_t* num_errors) {
+static double scan_device(struct dirent* dirent, void* read_dst,
+                          ssize_t* total_bytes_read, ssize_t* num_errors,
+                          int longest_name, int longest_sz) {
   int fd;
   ssize_t bytes_read;
   double total_time, before_read_time;
@@ -264,7 +254,7 @@ static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
   *total_bytes_read = 0;
   total_time = 0.0;
 
-  if (get_file_sz(ui, fd, &sz)) {
+  if (get_file_sz(fd, &sz)) {
     goto seek_error;
   }
 
@@ -288,7 +278,12 @@ static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
         if (*num_errors == 0)
           ui->PutChar('\n');
         // print_dev_name_spacing(ui, longest_name);
-        ui->PrintOnScreenOnly("READ ERROR at MB #%zd\n", (fd_pos/READSZ));
+        // ui->PrintOnScreenOnly("READ ERROR: offset: %ld size: %d\nerrno str: %s\n",
+        //                       fd_pos, READSZ, strerror(errno));
+        ui->PrintOnScreenOnly("%*s offset: %ld size: %d\n%*s %s\n",
+                              (longest_name+longest_sz+1), "READ ERROR:",
+                              fd_pos, READSZ,
+                              (longest_name+longest_sz+1), "errno str:", strerror(errno));
       }
       (*num_errors)++;
       // ui->PrintOnScreenOnly("READ ERROR WHEN TRYING TO READ bytes: %zd, "
@@ -332,7 +327,7 @@ static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
   return total_time;
 }
 
-static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
+static void do_scan_storage(void* read_dst) {
   int num_devs;
   int longest_name, longest_sz, longest_speed, longest_error;
   ssize_t bytes_read, total_mb_read;
@@ -357,20 +352,21 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   }
 
   longest_name = get_longest_name(namelist, num_devs);
-  if (get_longest_sz(ui, namelist, num_devs, &longest_sz))
+  if (get_longest_sz(namelist, num_devs, &longest_sz))
     return;
   longest_speed = get_longest_speed();
   longest_error = get_longest_error();
 
-  print_legend(ui, longest_name, longest_sz, longest_speed, longest_error);
+  print_legend(longest_name, longest_sz, longest_speed, longest_error);
 
   for (int x = 0; x < num_devs; ++x) {
     bytes_read = 0;
     num_errors = 0;
 
-    print_dev_name(ui, longest_name, namelist[x]);
+    print_dev_name(longest_name, namelist[x]);
     
-    time_reading = scan_device(ui, namelist[x], read_dst, &bytes_read, &num_errors);
+    time_reading = scan_device(namelist[x], read_dst, &bytes_read,
+                               &num_errors, longest_name, longest_sz);
 
     if (time_reading < 0.0) {
       /* TODO: print *something* indicating error */
@@ -381,9 +377,9 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
       total_time_reading += time_reading;
 
       if (num_errors > 0)
-        print_dev_name_spacing(ui, longest_name);
+        print_dev_name_spacing(longest_name);
 
-      print_stats(ui, mb_read, longest_sz, time_reading, longest_speed, num_errors, longest_error);
+      print_stats(mb_read, longest_sz, time_reading, longest_speed, num_errors, longest_error);
     }
   }
 
@@ -395,8 +391,10 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
                         (total_mb_read/total_time_reading));
 }
 
-void scan_storage(RecoveryUI* ui) {
+void scan_storage(RecoveryUI* current_ui) {
   void* read_dst;
+
+  ui = current_ui;
 
   ui->ClearText();
 
@@ -412,5 +410,5 @@ void scan_storage(RecoveryUI* ui) {
     return;
   }
 
-  do_scan_storage(ui, read_dst);
+  do_scan_storage(read_dst);
 }
