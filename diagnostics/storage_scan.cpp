@@ -19,6 +19,7 @@
 #define READSZ (MB)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
+#define LEGEND_COLSEP 4
 #define LEGEND_NAME "Name"
 #define LEGEND_BYTES_READ "MB Read"
 #define LEGEND_SPEED "Speed (MB/s)"
@@ -32,8 +33,6 @@
 #define MOCK_READ
 
 static RecoveryUI* ui;
-
-/* TODO: consider making the longest sizes global */
 
 /*
  * TODO: REVIEW: this is an exact duplicate of the function in
@@ -66,10 +65,12 @@ static int mocked_read(int fd, void* buf, size_t count) {
 
 static void print_legend(int longest_name, int longest_sz,
                          int longest_speed, int longest_error) {
-  ui->PrintOnScreenOnly("%-*s %*s    %*s    %*s\n",
+  ui->PrintOnScreenOnly("%-*s %*s%*s%*s%*s%*s\n",
                         longest_name, LEGEND_NAME,
                         longest_sz, LEGEND_BYTES_READ,
+                        LEGEND_COLSEP, "",
                         longest_speed, LEGEND_SPEED,
+                        LEGEND_COLSEP, "",
                         longest_error, LEGEND_ERRORS);
 }
 
@@ -83,9 +84,11 @@ static void print_dev_name_spacing(int longest_name) {
 
 static void print_stats(double mb_read, int longest_sz, double time_reading,
                         int longest_speed, ssize_t num_errors, int longest_error) {
-  ui->PrintOnScreenOnly("%*.2f    %*.2f    %*zd\n",
+  ui->PrintOnScreenOnly("%*.2f%*s%*.2f%*s%*zd\n",
                         longest_sz, mb_read,
+                        LEGEND_COLSEP, "",
                         longest_speed, (mb_read/time_reading),
+                        LEGEND_COLSEP, "",
                         longest_error, num_errors);
 }
 
