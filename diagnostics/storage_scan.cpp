@@ -19,6 +19,11 @@
 #define READSZ (MB)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
+#define LEGEND_NAME "Name"
+#define LEGEND_BYTES_READ "MB Read"
+#define LEGEND_SPEED "Speed (MB/s)"
+#define LEGEND_ERRORS "Errors"
+
 /*
  * TODO: try redrawing the screen twice and try calculating the time
  * it takes to it the second time (after no changes)
@@ -89,54 +94,30 @@ static int blkdev_filter(const struct dirent* dirent) {
   return dirent->d_type == DT_BLK || dirent->d_type == DT_LNK;
 }
 
-static void print_legend(RecoveryUI* ui, size_t longest_name) {
-  ui->PrintOnScreenOnly("Name%*s MB Read      Speed (MB/s)     Errors\n", (int)(longest_name - 4), " ");
+static void print_legend(RecoveryUI* ui, int longest_name, int longest_sz,
+                         int longest_speed, int longest_error) {
+  ui->PrintOnScreenOnly("%-*s %*s    %*s    %*s\n",
+                        longest_name, LEGEND_NAME,
+                        longest_sz, LEGEND_BYTES_READ,
+                        longest_speed, LEGEND_SPEED,
+                        longest_error, LEGEND_ERRORS);
 }
 
-static void print_dev_name(RecoveryUI* ui, size_t longest_name, struct dirent* dirent) {
-  size_t name_len, indent_len;
-
-  /* strlen should not return a negative here */
-  name_len = strlen(dirent->d_name);
-  indent_len = longest_name - name_len;
-
-  ui->PrintOnScreenOnly("%s %*s", dirent->d_name, (int)indent_len, " ");
+static void print_dev_name(RecoveryUI* ui, int longest_name, struct dirent* dirent) {
+  ui->PrintOnScreenOnly("%-*s ", longest_name, dirent->d_name);
 }
 
-static int get_mb_read_padding(double mb_read, int longest_sz) {
-  int num_chars = 0; /* num chars it takes to display the number */
-  double padding_mb_read = mb_read;
-  int longest_num_chars = 0;
-  double padding_longest_sz = (double)longest_sz;
-
-  for (; padding_longest_sz >= 1.0; longest_num_chars++)
-    padding_longest_sz /= 10;
-  for (; padding_mb_read >= 1.0; num_chars++)
-    padding_mb_read /= 10;
-  return (longest_num_chars - num_chars);
+static void print_dev_name_spacing(RecoveryUI* ui, int longest_name) {
+  ui->PrintOnScreenOnly("%-*s ", longest_name, "");
 }
 
-static void print_stats(RecoveryUI* ui, double mb_read, double longest_sz,
-                        double time_reading, ssize_t num_errors) {
-  double mb_per_sec;
-  int mb_read_len, mb_per_sec_len;
-  int mb_read_padding, mb_per_sec_padding;
-
-  /* if the size read is less than a MB */
-  mb_read_len = (int)std::log10(mb_read);
-  if (mb_read_len < 0)
-    mb_read_len = 0;
-
-  mb_read_padding = ((int)std::log10(longest_sz)+1) - mb_read_len;
-  mb_per_sec = (mb_read/time_reading);
-  mb_per_sec_len = (int)std::log10(mb_per_sec);
-  if (mb_per_sec_len < 0)
-    mb_per_sec_len = 0;
-  mb_per_sec_padding = 5 - mb_per_sec_len; /* should always be positive... */
-
-  // ui->PrintOnScreenOnly("(%d-%d)", (int)std::log10(longest_sz), mb_read_len);
-
-  ui->PrintOnScreenOnly("%.2f%*s%.2f%*s %zd\n", mb_read, mb_read_padding, " ", mb_per_sec, mb_per_sec_padding, " ", num_errors);
+static void print_stats(RecoveryUI* ui, double mb_read, int longest_sz,
+                        double time_reading, int longest_speed, ssize_t num_errors,
+                        int longest_error) {
+  ui->PrintOnScreenOnly("%*.2f    %*.2f    %*zd\n",
+                        longest_sz, mb_read,
+                        longest_speed, (mb_read/time_reading),
+                        longest_error, num_errors);
 }
 
 /*
@@ -183,6 +164,8 @@ static int get_file_sz(RecoveryUI* ui, int fd, off_t* sz) {
   return 0;
 }
 
+// static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
+//                           ssize_t* total_bytes_read, ssize_t* num_errors, int longest_name) {
 static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
                           ssize_t* total_bytes_read, ssize_t* num_errors) {
   int fd;
@@ -225,6 +208,7 @@ static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
       if (*num_errors < 5) {
         if (*num_errors == 0)
           ui->PutChar('\n');
+        // print_dev_name_spacing(ui, longest_name);
         ui->PrintOnScreenOnly("READ ERROR at MB #%zd\n", (fd_pos/READSZ));
       }
       (*num_errors)++;
@@ -238,6 +222,8 @@ static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
        * -- hopefully the next block we've seeked to is readable
        */
       if (lseek(fd, (fd_pos + READSZ), SEEK_SET) == -1) {
+        // if (*num_errors == 0)
+        //   print_dev_name_spacing(ui, longest_name);
         ui->PrintOnScreenOnly("Could not continue to read file after "
                               "read error -- left in undefined "
                               "position (errno: %d, %s)\n", errno,
@@ -267,26 +253,30 @@ static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
   return total_time;
 }
 
-static size_t get_longest_name(struct dirent** namelist, int num_devs) {
+static int get_longest_name(struct dirent** namelist, int num_devs) {
   size_t longest_name, name_len;
-  longest_name = 0;
+
+  longest_name = strlen(LEGEND_NAME);
   for (int x = 0; x < num_devs; ++x) {
     name_len = strlen(namelist[x]->d_name);
     if (name_len >= longest_name)
       longest_name = name_len;
   }
-  return longest_name;
+  /* +1 to account for %*s still adding a character when the number is 0 */
+  longest_name++;
+  return (int)longest_name;
 }
 
 static int get_longest_sz(RecoveryUI* ui, struct dirent** namelist,
-                          int num_devs, double* longest_sz) {
+                            int num_devs, int* longest_sz) {
   int fd;
+  int min_read_len;
   off_t sz;
-  double sz_mb;
+  double sz_mb, largest_sz;
   std::string dir_path(BLKDEV_DIR);
   std::string full_path;
 
-  *longest_sz = 0.0;
+  largest_sz = 0.0;
   for (int x = 0; x < num_devs; ++x) {
     full_path = dir_path + namelist[x]->d_name;
     if ((fd = open(full_path.c_str(), O_RDONLY)) == -1) {
@@ -301,19 +291,50 @@ static int get_longest_sz(RecoveryUI* ui, struct dirent** namelist,
     }
 
     sz_mb = ((double)sz)/MB;
-    if (sz_mb >= *longest_sz)
-      *longest_sz = sz_mb;
+    if (sz_mb >= largest_sz)
+      largest_sz = sz_mb;
 
     close(fd);
   }
+
+  // ui->PrintOnScreenOnly("largest_sz: %.2f (%d) ", largest_sz, (int)std::log10(largest_sz));
+
+  *longest_sz = (int)std::log10(largest_sz) + 1; /* +1 because log starts 'counting' at 0 */
+  if (*longest_sz <= 0) {
+    *longest_sz = 1;
+  }
+  // ui->PrintOnScreenOnly("longest_sz1: %d ", *longest_sz);
+
+  *longest_sz += 3; /* +3 for decimal precision */
+
+  // ui->PrintOnScreenOnly("longest_sz2: %d\n", *longest_sz);
+
+  /* TODO: fix the strlen return if it's 'bigger' than an int and is interpreted as negative -- *highly* unlikely */
+  min_read_len = (int)strlen(LEGEND_BYTES_READ);
+  if (*longest_sz < min_read_len)
+    *longest_sz = min_read_len;
   
   return 0;
 }
 
+static int get_longest_speed() {
+  /* No drive is likely being read over 9999.99 MB/s */
+  int longest_speed = 7;
+  /* TODO: fix the strlen return if it's 'bigger' than an int and is interpreted as negative -- *highly* unlikely */
+  int min_speed_len = (int)strlen(LEGEND_SPEED);
+
+  if (longest_speed < min_speed_len)
+    longest_speed = min_speed_len;
+  return longest_speed;
+}
+
+static int get_longest_error() {
+  return (int)strlen(LEGEND_ERRORS);
+}
+
 static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   int num_devs;
-  double longest_sz;
-  size_t longest_name;
+  int longest_name, longest_sz, longest_speed, longest_error;
   ssize_t bytes_read, total_mb_read;
   ssize_t num_errors;
   struct dirent** namelist;
@@ -338,10 +359,12 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   longest_name = get_longest_name(namelist, num_devs);
   if (get_longest_sz(ui, namelist, num_devs, &longest_sz))
     return;
+  longest_speed = get_longest_speed();
+  longest_error = get_longest_error();
 
-  ui->PrintOnScreenOnly("longest_name: %zd, longest_sz: %.6f, ls pad: %d\n", longest_name, longest_sz, ((int)std::log10(longest_sz)));
+  // ui->PrintOnScreenOnly("longest_name: %d, longest_sz: %d\n", longest_name, longest_sz);
 
-  print_legend(ui, longest_name);
+  print_legend(ui, longest_name, longest_sz, longest_speed, longest_error);
 
   for (int x = 0; x < num_devs; ++x) {
     bytes_read = 0;
@@ -349,6 +372,7 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
 
     print_dev_name(ui, longest_name, namelist[x]);
     
+    // time_reading = scan_device(ui, namelist[x], read_dst, &bytes_read, &num_errors, longest_name);
     time_reading = scan_device(ui, namelist[x], read_dst, &bytes_read, &num_errors);
 
     if (time_reading < 0.0) {
@@ -363,7 +387,7 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
         for (int x = 0; x < (longest_name + 1); x++)
           ui->PutChar(' ');
 
-      print_stats(ui, mb_read, longest_sz, time_reading, num_errors);
+      print_stats(ui, mb_read, longest_sz, time_reading, longest_speed, num_errors, longest_error);
     }
   }
 
@@ -380,8 +404,8 @@ void scan_storage(RecoveryUI* ui) {
 
   ui->ClearText();
 
-  ui->PrintOnScreenOnly("Reading all block devices listed in %s\n"
-                        "to find any bad sectors\n\n", BLKDEV_DIR);
+  ui->PrintOnScreenOnly("Scanning block devices in %s for bad sectors\n"
+                        "\n\nHold volume down to cancel\n\n", BLKDEV_DIR);
 
   /* mmap here to properly align the buffer for faster writes */
   read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
