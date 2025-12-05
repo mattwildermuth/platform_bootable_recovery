@@ -220,12 +220,13 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
   }
 
   /* if equal, at least sort alphabetically */
-  if (a_operand == b_operand)
+  if (a_operand == b_operand) {
     compar_result = alphasort(dirent_a, dirent_b);
-  else if (a_operand > b_operand)
+  } else if (a_operand > b_operand) {
     compar_result =  1;
-  else
+  } else {
     compar_result = -1;
+  }
 
   return compar_result;
 }
