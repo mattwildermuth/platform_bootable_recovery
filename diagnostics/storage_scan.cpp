@@ -245,12 +245,21 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
   return compar_result;
 }
 
-/*
- * TODO: this does not yet check if the block dev on the other side of
- * the link is a block device
- */
 static int blkdev_filter(const struct dirent* dirent) {
-  return dirent->d_type == DT_BLK || dirent->d_type == DT_LNK;
+  struct stat dirent_statbuf;
+  std::string dev_path(BLKDEV_DIR);
+  dev_path += dirent->d_name;
+
+  /*
+   * dirent has a type field, but the dirent might be a sym link
+   * stat helps get the file type if the dirent is a sym link
+   */
+  if (stat(dev_path.c_str(), &dirent_statbuf) == -1) {
+    ui->PrintOnScreenOnly("COULD NOT STAT %s in scandir filter (errno: %d, %s)\n",
+                          dev_path.c_str(), errno, strerror(errno));
+    return 0;
+  }
+  return S_ISBLK(dirent_statbuf.st_mode);
 }
 
 static double scan_device(struct dirent* dirent, void* read_dst,
