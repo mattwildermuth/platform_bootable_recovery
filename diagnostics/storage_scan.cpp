@@ -1,17 +1,13 @@
-#include <diagnostics/storage_scan.h>
-
-#include <string.h>
-
-#include <sys/types.h>
-#include <fcntl.h>
-
-#include <sys/stat.h>
-
-#include <unistd.h>
+#include "diagnostics/storage_scan.h"
 
 #include <dirent.h>
+#include <fcntl.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/sysmacros.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include <cmath>
 
@@ -48,6 +44,7 @@ static double now() {
   return tv.tv_sec + tv.tv_usec / 1000000.0;
 }
 
+/* TODO: eventually delete */
 #ifdef MOCK_READ
 
 static int mocked_read(int fd, void* buf, size_t count) {
@@ -317,8 +314,6 @@ static double scan_device(struct dirent* dirent, void* read_dst,
        * -- hopefully the next block we've seeked to is readable
        */
       if (lseek(fd, (fd_pos + READSZ), SEEK_SET) == -1) {
-        // if (*num_errors == 0)
-        //   print_dev_name_spacing(ui, longest_name);
         ui->PrintOnScreenOnly("Could not continue to read file after "
                               "read error -- left in undefined "
                               "position (errno: %d, %s)\n", errno,
@@ -357,6 +352,7 @@ void scan_storage(RecoveryUI* current_ui) {
 
   ui->ClearText();
 
+  /* TODO: print is currently one character larger than a line on the pixel 6a :| */
   ui->PrintOnScreenOnly("Scanning block devices in %s for bad sectors\n"
                         "\n\nHold volume down to cancel\n\n", BLKDEV_DIR);
 
@@ -392,7 +388,7 @@ void scan_storage(RecoveryUI* current_ui) {
     num_errors = 0;
 
     print_dev_name(longest_name, namelist[x]);
-    
+
     time_reading = scan_device(namelist[x], read_dst, &bytes_read,
                                &num_errors, longest_name, longest_sz);
 

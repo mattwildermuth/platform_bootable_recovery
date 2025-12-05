@@ -742,7 +742,7 @@ Device::BuiltinAction start_recovery(Device* device, const std::vector<std::stri
 
   std::vector<std::string> title_lines =
       android::base::Split(android::base::GetProperty("ro.build.fingerprint", ""), ":");
-  title_lines.insert(std::begin(title_lines), "GrapheneOS Recovery [IN PROGRESS]");
+  title_lines.insert(std::begin(title_lines), "GrapheneOS Recovery");
   ui->SetTitle(title_lines);
 
   ui->ResetKeyInterruptStatus();
