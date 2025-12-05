@@ -34,6 +34,155 @@
 /* cannot do the below because recoveryui is an abstract class :| */
 /* static RecoveryUI ui; */
 
+/*
+ * TODO: REVIEW: this is an exact duplicate of the function in
+ * recovery_ui/screen_ui.cpp. Consider engineering something to remove
+ * this duplicate definition
+ */
+static double now() {
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  return tv.tv_sec + tv.tv_usec / 1000000.0;
+}
+
+#ifdef MOCK_READ
+
+static int mocked_read(int fd, void* buf, size_t count) {
+  off_t dev_pos;
+  double dev_pos_mb;
+
+  if ((dev_pos = lseek(fd, 0, SEEK_CUR)) == -1)
+    return -1;
+
+  dev_pos_mb = ((double)dev_pos/MB);
+  if (std::fmod(dev_pos_mb, 1000.0) == 0.0 && dev_pos != 0)
+    return -1;
+
+  return read(fd, buf, count);
+}
+
+#endif /* #ifdef MOCK_READ */
+
+static void print_legend(RecoveryUI* ui, int longest_name, int longest_sz,
+                         int longest_speed, int longest_error) {
+  ui->PrintOnScreenOnly("%-*s %*s    %*s    %*s\n",
+                        longest_name, LEGEND_NAME,
+                        longest_sz, LEGEND_BYTES_READ,
+                        longest_speed, LEGEND_SPEED,
+                        longest_error, LEGEND_ERRORS);
+}
+
+static void print_dev_name(RecoveryUI* ui, int longest_name, struct dirent* dirent) {
+  ui->PrintOnScreenOnly("%-*s ", longest_name, dirent->d_name);
+}
+
+static void print_dev_name_spacing(RecoveryUI* ui, int longest_name) {
+  ui->PrintOnScreenOnly("%-*s ", longest_name, "");
+}
+
+static void print_stats(RecoveryUI* ui, double mb_read, int longest_sz,
+                        double time_reading, int longest_speed, ssize_t num_errors,
+                        int longest_error) {
+  ui->PrintOnScreenOnly("%*.2f    %*.2f    %*zd\n",
+                        longest_sz, mb_read,
+                        longest_speed, (mb_read/time_reading),
+                        longest_error, num_errors);
+}
+
+/* assumes file position was initially at 0 */
+static int get_file_sz(RecoveryUI* ui, int fd, off_t* sz) {
+  if ((*sz = lseek(fd, 0, SEEK_END)) == -1) {
+    ui->PrintOnScreenOnly("could not seek to end of device "
+                          "(errno: %d, %s)\n", errno, strerror(errno));
+    return 1;
+  }
+  if (lseek(fd, 0, SEEK_SET) == -1) {
+    ui->PrintOnScreenOnly("could not seek back to start of device "
+                          "(errno: %d, %s)\n", errno, strerror(errno));
+    return 1;
+  }
+  return 0;
+}
+
+static int get_longest_name(struct dirent** namelist, int num_devs) {
+  size_t longest_name, name_len;
+
+  longest_name = strlen(LEGEND_NAME);
+  for (int x = 0; x < num_devs; ++x) {
+    name_len = strlen(namelist[x]->d_name);
+    if (name_len >= longest_name)
+      longest_name = name_len;
+  }
+  /* +1 to account for %*s still adding a character when the number is 0 */
+  longest_name++;
+  return (int)longest_name;
+}
+
+static int get_longest_sz(RecoveryUI* ui, struct dirent** namelist,
+                            int num_devs, int* longest_sz) {
+  int fd;
+  int min_read_len;
+  off_t sz;
+  double sz_mb, largest_sz;
+  std::string dir_path(BLKDEV_DIR);
+  std::string full_path;
+
+  largest_sz = 0.0;
+  for (int x = 0; x < num_devs; ++x) {
+    full_path = dir_path + namelist[x]->d_name;
+    if ((fd = open(full_path.c_str(), O_RDONLY)) == -1) {
+      ui->PrintOnScreenOnly("couldn't be opened (errno: %d, %s)\n",
+                            errno, strerror(errno));
+      return 1;
+    }
+
+    if (get_file_sz(ui, fd, &sz)) {
+      close(fd);
+      return 1;
+    }
+
+    sz_mb = ((double)sz)/MB;
+    if (sz_mb >= largest_sz)
+      largest_sz = sz_mb;
+
+    close(fd);
+  }
+
+  // ui->PrintOnScreenOnly("largest_sz: %.2f (%d) ", largest_sz, (int)std::log10(largest_sz));
+
+  *longest_sz = (int)std::log10(largest_sz) + 1; /* +1 because log starts 'counting' at 0 */
+  if (*longest_sz <= 0) {
+    *longest_sz = 1;
+  }
+  // ui->PrintOnScreenOnly("longest_sz1: %d ", *longest_sz);
+
+  *longest_sz += 3; /* +3 for decimal precision */
+
+  // ui->PrintOnScreenOnly("longest_sz2: %d\n", *longest_sz);
+
+  /* TODO: fix the strlen return if it's 'bigger' than an int and is interpreted as negative -- *highly* unlikely */
+  min_read_len = (int)strlen(LEGEND_BYTES_READ);
+  if (*longest_sz < min_read_len)
+    *longest_sz = min_read_len;
+
+  return 0;
+}
+
+static int get_longest_speed() {
+  /* No drive is likely being read over 9999.99 MB/s */
+  int longest_speed = 7;
+  /* TODO: fix the strlen return if it's 'bigger' than an int and is interpreted as negative -- *highly* unlikely */
+  int min_speed_len = (int)strlen(LEGEND_SPEED);
+
+  if (longest_speed < min_speed_len)
+    longest_speed = min_speed_len;
+  return longest_speed;
+}
+
+static int get_longest_error() {
+  return (int)strlen(LEGEND_ERRORS);
+}
+
 static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** dirent_b) {
   int compar_result;
   struct stat dirent_a_statbuf, dirent_b_statbuf;
@@ -92,76 +241,6 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
 
 static int blkdev_filter(const struct dirent* dirent) {
   return dirent->d_type == DT_BLK || dirent->d_type == DT_LNK;
-}
-
-static void print_legend(RecoveryUI* ui, int longest_name, int longest_sz,
-                         int longest_speed, int longest_error) {
-  ui->PrintOnScreenOnly("%-*s %*s    %*s    %*s\n",
-                        longest_name, LEGEND_NAME,
-                        longest_sz, LEGEND_BYTES_READ,
-                        longest_speed, LEGEND_SPEED,
-                        longest_error, LEGEND_ERRORS);
-}
-
-static void print_dev_name(RecoveryUI* ui, int longest_name, struct dirent* dirent) {
-  ui->PrintOnScreenOnly("%-*s ", longest_name, dirent->d_name);
-}
-
-static void print_dev_name_spacing(RecoveryUI* ui, int longest_name) {
-  ui->PrintOnScreenOnly("%-*s ", longest_name, "");
-}
-
-static void print_stats(RecoveryUI* ui, double mb_read, int longest_sz,
-                        double time_reading, int longest_speed, ssize_t num_errors,
-                        int longest_error) {
-  ui->PrintOnScreenOnly("%*.2f    %*.2f    %*zd\n",
-                        longest_sz, mb_read,
-                        longest_speed, (mb_read/time_reading),
-                        longest_error, num_errors);
-}
-
-/*
- * TODO: REVIEW: this is an exact duplicate of the function in
- * recovery_ui/screen_ui.cpp. Consider engineering something to remove
- * this duplicate definition
- */
-static double now() {
-  struct timeval tv;
-  gettimeofday(&tv, nullptr);
-  return tv.tv_sec + tv.tv_usec / 1000000.0;
-}
-
-#ifdef MOCK_READ
-
-static int mocked_read(int fd, void* buf, size_t count) {
-  off_t dev_pos;
-  double dev_pos_mb;
-
-  if ((dev_pos = lseek(fd, 0, SEEK_CUR)) == -1)
-    return -1;
-
-  dev_pos_mb = ((double)dev_pos/MB);
-  if (std::fmod(dev_pos_mb, 1000.0) == 0.0 && dev_pos != 0)
-    return -1;
-
-  return read(fd, buf, count);
-}
-
-#endif /* #ifdef MOCK_READ */
-
-/* assumes file position was initially at 0 */
-static int get_file_sz(RecoveryUI* ui, int fd, off_t* sz) {
-  if ((*sz = lseek(fd, 0, SEEK_END)) == -1) {
-    ui->PrintOnScreenOnly("could not seek to end of device "
-                          "(errno: %d, %s)\n", errno, strerror(errno));
-    return 1;
-  }
-  if (lseek(fd, 0, SEEK_SET) == -1) {
-    ui->PrintOnScreenOnly("could not seek back to start of device "
-                          "(errno: %d, %s)\n", errno, strerror(errno));
-    return 1;
-  }
-  return 0;
 }
 
 // static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
@@ -253,85 +332,6 @@ static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
   return total_time;
 }
 
-static int get_longest_name(struct dirent** namelist, int num_devs) {
-  size_t longest_name, name_len;
-
-  longest_name = strlen(LEGEND_NAME);
-  for (int x = 0; x < num_devs; ++x) {
-    name_len = strlen(namelist[x]->d_name);
-    if (name_len >= longest_name)
-      longest_name = name_len;
-  }
-  /* +1 to account for %*s still adding a character when the number is 0 */
-  longest_name++;
-  return (int)longest_name;
-}
-
-static int get_longest_sz(RecoveryUI* ui, struct dirent** namelist,
-                            int num_devs, int* longest_sz) {
-  int fd;
-  int min_read_len;
-  off_t sz;
-  double sz_mb, largest_sz;
-  std::string dir_path(BLKDEV_DIR);
-  std::string full_path;
-
-  largest_sz = 0.0;
-  for (int x = 0; x < num_devs; ++x) {
-    full_path = dir_path + namelist[x]->d_name;
-    if ((fd = open(full_path.c_str(), O_RDONLY)) == -1) {
-      ui->PrintOnScreenOnly("couldn't be opened (errno: %d, %s)\n",
-                            errno, strerror(errno));
-      return 1;
-    }
-
-    if (get_file_sz(ui, fd, &sz)) {
-      close(fd);
-      return 1;
-    }
-
-    sz_mb = ((double)sz)/MB;
-    if (sz_mb >= largest_sz)
-      largest_sz = sz_mb;
-
-    close(fd);
-  }
-
-  // ui->PrintOnScreenOnly("largest_sz: %.2f (%d) ", largest_sz, (int)std::log10(largest_sz));
-
-  *longest_sz = (int)std::log10(largest_sz) + 1; /* +1 because log starts 'counting' at 0 */
-  if (*longest_sz <= 0) {
-    *longest_sz = 1;
-  }
-  // ui->PrintOnScreenOnly("longest_sz1: %d ", *longest_sz);
-
-  *longest_sz += 3; /* +3 for decimal precision */
-
-  // ui->PrintOnScreenOnly("longest_sz2: %d\n", *longest_sz);
-
-  /* TODO: fix the strlen return if it's 'bigger' than an int and is interpreted as negative -- *highly* unlikely */
-  min_read_len = (int)strlen(LEGEND_BYTES_READ);
-  if (*longest_sz < min_read_len)
-    *longest_sz = min_read_len;
-  
-  return 0;
-}
-
-static int get_longest_speed() {
-  /* No drive is likely being read over 9999.99 MB/s */
-  int longest_speed = 7;
-  /* TODO: fix the strlen return if it's 'bigger' than an int and is interpreted as negative -- *highly* unlikely */
-  int min_speed_len = (int)strlen(LEGEND_SPEED);
-
-  if (longest_speed < min_speed_len)
-    longest_speed = min_speed_len;
-  return longest_speed;
-}
-
-static int get_longest_error() {
-  return (int)strlen(LEGEND_ERRORS);
-}
-
 static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   int num_devs;
   int longest_name, longest_sz, longest_speed, longest_error;
@@ -362,8 +362,6 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   longest_speed = get_longest_speed();
   longest_error = get_longest_error();
 
-  // ui->PrintOnScreenOnly("longest_name: %d, longest_sz: %d\n", longest_name, longest_sz);
-
   print_legend(ui, longest_name, longest_sz, longest_speed, longest_error);
 
   for (int x = 0; x < num_devs; ++x) {
@@ -372,7 +370,6 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
 
     print_dev_name(ui, longest_name, namelist[x]);
     
-    // time_reading = scan_device(ui, namelist[x], read_dst, &bytes_read, &num_errors, longest_name);
     time_reading = scan_device(ui, namelist[x], read_dst, &bytes_read, &num_errors);
 
     if (time_reading < 0.0) {
