@@ -19,6 +19,9 @@
 #define READSZ (MB)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
+/* in MB/s */
+#define FASTEST_READ_SPEED 9999.99
+
 #define LEGEND_COLSEP 4
 #define LEGEND_NAME "Name"
 #define LEGEND_BYTES_READ "MB Read"
@@ -168,19 +171,27 @@ static int get_longest_sz(struct dirent** namelist, int num_devs, int* longest_s
 }
 
 static int get_longest_speed() {
-  /* No drive is likely being read over 9999.99 MB/s */
-  int longest_speed = 7;
+  int longest_speed, min_speed_len;
+  /*
+   * +1 because log starts 'counting' at 0
+   * +3 to keep track of decimal precision characters
+   */
+  longest_speed = (int)std::log10(FASTEST_READ_SPEED)+4;
   /*
    * TODO: fix the strlen return if it's 'bigger' than an int and is
    * interpreted as negative -- *highly* unlikely
    */
-  int min_speed_len = (int)strlen(LEGEND_SPEED);
+  min_speed_len = (int)strlen(LEGEND_SPEED);
 
   if (longest_speed < min_speed_len)
     longest_speed = min_speed_len;
   return longest_speed;
 }
 
+/*
+ * debatably, shouldn't be a function, but kept to preserve the
+ * 'getting max length' pattern
+ */
 static int get_longest_error() {
   return (int)strlen(LEGEND_ERRORS);
 }
@@ -234,6 +245,10 @@ static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** d
   return compar_result;
 }
 
+/*
+ * TODO: this does not yet check if the block dev on the other side of
+ * the link is a block device
+ */
 static int blkdev_filter(const struct dirent* dirent) {
   return dirent->d_type == DT_BLK || dirent->d_type == DT_LNK;
 }
@@ -281,19 +296,12 @@ static double scan_device(struct dirent* dirent, void* read_dst,
       if (*num_errors < 5) {
         if (*num_errors == 0)
           ui->PutChar('\n');
-        // print_dev_name_spacing(ui, longest_name);
-        // ui->PrintOnScreenOnly("READ ERROR: offset: %ld size: %d\nerrno str: %s\n",
-        //                       fd_pos, READSZ, strerror(errno));
         ui->PrintOnScreenOnly("%*s offset: %ld size: %d\n%*s %s\n",
                               (longest_name+longest_sz+1), "READ ERROR:",
                               fd_pos, READSZ,
                               (longest_name+longest_sz+1), "errno str:", strerror(errno));
       }
       (*num_errors)++;
-      // ui->PrintOnScreenOnly("READ ERROR WHEN TRYING TO READ bytes: %zd, "
-      //                       "MB #%zd (errno: %d, %s)\n",
-      //                       total_bytes_read, (total_bytes_read/READSZ),
-      //                       errno, strerror(errno));
       /*
        * the position of the file position pointer is undefined if
        * read returns an error -- we want to try and continue reading
@@ -318,12 +326,6 @@ static double scan_device(struct dirent* dirent, void* read_dst,
     *total_bytes_read += bytes_read;
     fd_pos += READSZ;
   }
-
-  /*
-   * technically, we could still have interval_bytes != 0 here -- we
-   * shouldn't print anything though because an extra dot being
-   * printed sometimes would be a weird thing to a user
-   */
 
  seek_error:
   close(fd);
