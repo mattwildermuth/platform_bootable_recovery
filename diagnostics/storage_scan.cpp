@@ -31,8 +31,10 @@
 
 #define MOCK_READ
 
-/* cannot do the below because recoveryui is an abstract class :| */
+/* TODO: change this to a pointer and use */
 /* static RecoveryUI ui; */
+
+/* TODO: consider making the longest sizes global */
 
 /*
  * TODO: REVIEW: this is an exact duplicate of the function in
@@ -113,8 +115,6 @@ static int get_longest_name(struct dirent** namelist, int num_devs) {
     if (name_len >= longest_name)
       longest_name = name_len;
   }
-  /* +1 to account for %*s still adding a character when the number is 0 */
-  longest_name++;
   return (int)longest_name;
 }
 
@@ -148,19 +148,18 @@ static int get_longest_sz(RecoveryUI* ui, struct dirent** namelist,
     close(fd);
   }
 
-  // ui->PrintOnScreenOnly("largest_sz: %.2f (%d) ", largest_sz, (int)std::log10(largest_sz));
-
-  *longest_sz = (int)std::log10(largest_sz) + 1; /* +1 because log starts 'counting' at 0 */
+  /* +1 because log starts 'counting' at 0 */
+  *longest_sz = (int)std::log10(largest_sz) + 1;
   if (*longest_sz <= 0) {
     *longest_sz = 1;
   }
-  // ui->PrintOnScreenOnly("longest_sz1: %d ", *longest_sz);
 
   *longest_sz += 3; /* +3 for decimal precision */
 
-  // ui->PrintOnScreenOnly("longest_sz2: %d\n", *longest_sz);
-
-  /* TODO: fix the strlen return if it's 'bigger' than an int and is interpreted as negative -- *highly* unlikely */
+  /*
+   * TODO: fix the strlen return if it's 'bigger' than an int and is
+   * interpreted as negative -- *highly* unlikely
+   */
   min_read_len = (int)strlen(LEGEND_BYTES_READ);
   if (*longest_sz < min_read_len)
     *longest_sz = min_read_len;
@@ -171,7 +170,10 @@ static int get_longest_sz(RecoveryUI* ui, struct dirent** namelist,
 static int get_longest_speed() {
   /* No drive is likely being read over 9999.99 MB/s */
   int longest_speed = 7;
-  /* TODO: fix the strlen return if it's 'bigger' than an int and is interpreted as negative -- *highly* unlikely */
+  /*
+   * TODO: fix the strlen return if it's 'bigger' than an int and is
+   * interpreted as negative -- *highly* unlikely
+   */
   int min_speed_len = (int)strlen(LEGEND_SPEED);
 
   if (longest_speed < min_speed_len)
@@ -243,8 +245,6 @@ static int blkdev_filter(const struct dirent* dirent) {
   return dirent->d_type == DT_BLK || dirent->d_type == DT_LNK;
 }
 
-// static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
-//                           ssize_t* total_bytes_read, ssize_t* num_errors, int longest_name) {
 static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
                           ssize_t* total_bytes_read, ssize_t* num_errors) {
   int fd;
@@ -381,8 +381,7 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
       total_time_reading += time_reading;
 
       if (num_errors > 0)
-        for (int x = 0; x < (longest_name + 1); x++)
-          ui->PutChar(' ');
+        print_dev_name_spacing(ui, longest_name);
 
       print_stats(ui, mb_read, longest_sz, time_reading, longest_speed, num_errors, longest_error);
     }
