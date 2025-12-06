@@ -1,6 +1,7 @@
 #include "diagnostics/storage_scan.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -55,8 +56,10 @@ static int mocked_read(int fd, void* buf, size_t count) {
     return -1;
 
   dev_pos_mb = ((double)dev_pos/MB);
-  if (std::fmod(dev_pos_mb, 1000.0) == 0.0 && dev_pos != 0)
+  if (std::fmod(dev_pos_mb, 1000.0) == 0.0 && dev_pos != 0) {
+    errno = EIO;
     return -1;
+  }
 
   return read(fd, buf, count);
 }
@@ -260,8 +263,7 @@ static int blkdev_filter(const struct dirent* dirent) {
 }
 
 static double scan_device(struct dirent* dirent, void* read_dst,
-                          ssize_t* total_bytes_read, ssize_t* num_errors,
-                          int longest_name, int longest_sz) {
+                          ssize_t* total_bytes_read, ssize_t* num_errors) {
   int fd;
   ssize_t bytes_read;
   double total_time, before_read_time;
@@ -302,10 +304,8 @@ static double scan_device(struct dirent* dirent, void* read_dst,
       if (*num_errors < 5) {
         if (*num_errors == 0)
           ui->PrintOnScreenOnly("\n");
-        ui->PrintOnScreenOnly("%*s offset: %ld size: %d\n%*s %s\n",
-                              (longest_name+longest_sz+1), "READ ERROR:",
-                              fd_pos, READSZ,
-                              (longest_name+longest_sz+1), "errno str:", strerror(errno));
+        ui->PrintOnScreenOnly("  [%s] off: %ld (%d)\n",
+                              strerrorname_np(errno), fd_pos, READSZ);
       }
       (*num_errors)++;
       /*
@@ -389,8 +389,7 @@ void scan_storage(RecoveryUI* current_ui) {
 
     print_dev_name(longest_name, namelist[x]);
 
-    time_reading = scan_device(namelist[x], read_dst, &bytes_read,
-                               &num_errors, longest_name, longest_sz);
+    time_reading = scan_device(namelist[x], read_dst, &bytes_read, &num_errors);
 
     if (time_reading < 0.0) {
       /* This is just the case where we volume down and quit early */
@@ -403,7 +402,8 @@ void scan_storage(RecoveryUI* current_ui) {
       if (num_errors > 0)
         print_dev_name_spacing(longest_name);
 
-      print_stats(mb_read, longest_sz, time_reading, longest_speed, num_errors, longest_error);
+      print_stats(mb_read, longest_sz, time_reading,
+                  longest_speed, num_errors, longest_error);
     }
   }
 
