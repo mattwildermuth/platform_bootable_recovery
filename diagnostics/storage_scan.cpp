@@ -339,7 +339,7 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   if (get_longest_sz(ui, namelist, num_devs, &longest_sz))
     return;
 
-  ui->PrintOnScreenOnly("longest_name: %zd, longest_sz: %.6f, ls pad: %d\n", longest_name, longest_sz, ((int)std::log10(longest_sz)));
+  // ui->PrintOnScreenOnly("longest_name: %zd, longest_sz: %.6f, ls pad: %d\n", longest_name, longest_sz, ((int)std::log10(longest_sz)));
 
   print_legend(ui, longest_name);
 
@@ -380,8 +380,8 @@ void scan_storage(RecoveryUI* ui) {
 
   ui->ClearText();
 
-  ui->PrintOnScreenOnly("Reading all block devices listed in %s\n"
-                        "to find any bad sectors\n\n", BLKDEV_DIR);
+  ui->PrintOnScreenOnly("Scanning block devices in %s for bad sectors\n"
+                        "\n\nHold volume down to cancel\n\n", BLKDEV_DIR);
 
   /* mmap here to properly align the buffer for faster writes */
   read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
