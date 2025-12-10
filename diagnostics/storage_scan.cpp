@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include <assert.h>
+
 #include <sys/types.h>
 #include <fcntl.h>
 
@@ -206,12 +208,19 @@ static double scan_device(RecoveryUI* ui, struct dirent* dirent, void* read_dst,
     goto seek_error;
   }
 
+  /* still segfaults */
+  if (strcmp("userdata", dirent->d_name) == 0)
+    ui->PrintOnScreenOnly("before first read");
+
   bytes_read = 0;
   *num_errors = 0;
   fd_pos = 0;
 
   while (true) {
     before_read_time = now();
+    /* does not segfault */
+    // if (strcmp("userdata", dirent->d_name) == 0 && (fd_pos/READSZ) == 999)
+    //   ui->PrintOnScreenOnly("before read\n");
 #ifdef MOCK_READ
     bytes_read = mocked_read(fd, read_dst, READSZ);
 #else
@@ -346,6 +355,8 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
   for (int x = 0; x < num_devs; ++x) {
     bytes_read = 0;
     num_errors = 0;
+
+    assert (dirent && read_dst);
 
     print_dev_name(ui, longest_name, namelist[x]);
     
