@@ -434,8 +434,20 @@ void scan_storage(RecoveryUI* ui) {
   if (sig_hndlr_ini(SIGSEGV, segv_recover, &oldsa))
     ui->Print("AHHHHH");
 
-  /* hangs on userdata scan */
-  do_scan_storage(ui, read_dst);
+  int* zed = 0;
+  if (!sigsetjmp(sigenv, 0))
+    (*zed) = 6;
+  else
+    ui->Print("other side of the jmp\n");
+
+  ui->Print("err_flag: %d\n", err_flag);
+
+  // do_scan_storage(ui, read_dst);
+
+  // if (!sigsetjmp(sigenv, 0))
+  //   do_scan_storage(ui, read_dst);
+  // else
+  //   ui->Print("FATAL\n");
 
   sigaction(SIGSEGV, &oldsa, 0);
   sigprocmask(SIG_SETMASK, &prev_set, 0);
