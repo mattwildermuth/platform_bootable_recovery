@@ -1,5 +1,8 @@
 #include <diagnostics/storage_scan.h>
 
+#include <setjmp.h>
+#include <signal.h>
+
 #include <string.h>
 
 #include <sys/types.h>
@@ -19,6 +22,9 @@
 #define READSZ (MB)
 #define BLKDEV_DIR "/dev/block/by-name/"
 
+static sigjmp_buf sigenv;
+static int err_flag;
+
 /*
  * TODO: try redrawing the screen twice and try calculating the time
  * it takes to it the second time (after no changes)
@@ -28,6 +34,15 @@
 
 /* cannot do the below because recoveryui is an abstract class :| */
 /* static RecoveryUI ui; */
+RecoveryUI* glob_ui;
+
+static void segv_recover(int sig) {
+  glob_ui->Print("2948739847239487234");
+  err_flag = 1;
+  sig = 1; /* stop compiler from complaining about unused var */
+  siglongjmp(sigenv, sig);
+  // siglongjmp(sigenv, 1);
+}
 
 static int blkdev_compar(const struct dirent** dirent_a, const struct dirent** dirent_b) {
   int compar_result;
@@ -162,6 +177,8 @@ static int mocked_read(int fd, void* buf, size_t count) {
   dev_pos_mb = ((double)dev_pos/MB);
   if (std::fmod(dev_pos_mb, 1000.0) == 0.0 && dev_pos != 0)
     return -1;
+  // if (dev_pos % 1000 == 0.0 && dev_pos != 0)
+  //   return -1;
 
   return read(fd, buf, count);
 }
@@ -375,8 +392,23 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
                         (total_mb_read/total_time_reading));
 }
 
+static int sig_hndlr_ini(int sig, void (*handler)(int), struct sigaction* oldsa) {
+  struct sigaction sa;
+
+  sa.sa_flags = SA_RESTART;
+  sa.sa_handler = handler;
+  sigemptyset(&sa.sa_mask);
+
+  if (sigaction(sig, &sa, oldsa) < 0)
+    return 1;
+
+  return 0;
+}
+
 void scan_storage(RecoveryUI* ui) {
   void* read_dst;
+
+  glob_ui = ui;
 
   ui->ClearText();
 
@@ -392,5 +424,19 @@ void scan_storage(RecoveryUI* ui) {
     return;
   }
 
+  struct sigaction oldsa;
+  sigset_t unblock_segv_set, prev_set;
+  if (sigaddset(&unblock_segv_set, SIGSEGV))
+    ui->Print("segaddset failed");
+  if (sigprocmask(SIG_UNBLOCK, &unblock_segv_set, &prev_set))
+    ui->Print("sigprocmask failed");
+
+  // if (sig_hndlr_ini(SIGSEGV, segv_recover, &oldsa))
+  //   ui->Print("AHHHHH");
+
+  /* segfaults */
   do_scan_storage(ui, read_dst);
+
+  sigaction(SIGSEGV, &oldsa, 0);
+  sigprocmask(SIG_SETMASK, &prev_set, 0);
 }
