@@ -431,10 +431,10 @@ void scan_storage(RecoveryUI* ui) {
   if (sigprocmask(SIG_UNBLOCK, &unblock_segv_set, &prev_set))
     ui->Print("sigprocmask failed");
 
-  // if (sig_hndlr_ini(SIGSEGV, segv_recover, &oldsa))
-  //   ui->Print("AHHHHH");
+  if (sig_hndlr_ini(SIGSEGV, segv_recover, &oldsa))
+    ui->Print("AHHHHH");
 
-  /* segfaults */
+  /* hangs on userdata scan */
   do_scan_storage(ui, read_dst);
 
   sigaction(SIGSEGV, &oldsa, 0);
