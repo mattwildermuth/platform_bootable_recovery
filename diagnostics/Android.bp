@@ -1,0 +1,32 @@
+/* TODO: Should there be a copyright here? */
+
+/* TODO: Should we retain the below? */
+package {
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "bootable_recovery_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    default_applicable_licenses: ["bootable_recovery_license"],
+}
+
+// Make a new static library for diagnostics tooling which can access
+// other parts of recovery that may conatian device-specific codes
+// (e.g., librecovery_ui)
+cc_library_static {
+    name: "librecovery_diagnostics",
+
+    recovery_available: true,
+
+    srcs: [
+        "storage_scan.cpp",
+    ],
+
+    shared_libs: [
+        "librecovery_ui",
+    ],
+
+    export_include_dirs: [
+        "include",
+    ],
+}
