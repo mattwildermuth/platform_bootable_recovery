@@ -628,6 +628,8 @@ RecoveryUI::KeyAction RecoveryUI::CheckKey(int key, bool is_long_press) {
   return (IsTextVisible() || screensaver_state_ == ScreensaverState::OFF) ? ENQUEUE : IGNORE;
 }
 
+void RecoveryUI::ClearText() {}
+
 void RecoveryUI::KeyLongPress(int) {}
 
 void RecoveryUI::SetEnableReboot(bool enabled) {
