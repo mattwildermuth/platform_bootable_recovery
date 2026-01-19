@@ -376,21 +376,39 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
 }
 
 void scan_storage(RecoveryUI* ui) {
-  void* read_dst;
+  // void* read_dst;
 
-  ui->ClearText();
+  // ui->ClearText();
 
-  ui->PrintOnScreenOnly("Scanning block devices in %s for bad sectors\n"
-                        "\n\nHold volume down to cancel\n\n", BLKDEV_DIR);
+  // ui->PrintOnScreenOnly("Scanning block devices in %s for bad sectors\n"
+  //                       "\n\nHold volume down to cancel\n\n", BLKDEV_DIR);
 
-  /* mmap here to properly align the buffer for faster writes */
-  read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-  if (read_dst == MAP_FAILED) {
-    ui->PrintOnScreenOnly("Could not allocate space to dump the "
-                          "read bytes into (errno: %d, %s)\n", errno,
-                          strerror(errno));
-    return;
+  // /* mmap here to properly align the buffer for faster writes */
+  // read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+  // if (read_dst == MAP_FAILED) {
+  //   ui->PrintOnScreenOnly("Could not allocate space to dump the "
+  //                         "read bytes into (errno: %d, %s)\n", errno,
+  //                         strerror(errno));
+  //   return;
+  // }
+
+  // do_scan_storage(ui, read_dst);
+
+  // ScreenRecoveryUI* screen_ui = static_cast<ScreenRecoveryUI*>(ui);
+  /*
+   * text_rows_ is a protected member of ScreenRecoveryUI, so it can't
+   * be accessed without adding a method to the class
+   *
+   * I believe 64 to be enough for the 6a, but made the limit 80 just
+   * in case
+   */
+  for (int x = 0; x < 70; x++)
+  {
+    // ui->PutChar(x);
+    // ui->PutChar('\n');
+    ui->PrintOnScreenOnly("%d\n", x);
   }
-
-  do_scan_storage(ui, read_dst);
+  ui->PrintOnScreenOnly("About to do something very bad");
+  ui->PutChar('\n');
+  ui->PrintOnScreenOnly("I never get printed out");
 }
