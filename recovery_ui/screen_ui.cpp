@@ -1096,10 +1096,13 @@ void ScreenRecoveryUI::PrintOnScreenOnly(const char* fmt, ...) {
 
 void ScreenRecoveryUI::PutChar(char ch) {
   std::lock_guard<std::mutex> lg(updateMutex);
-  if (ch != '\n') text_[text_row_][text_col_++] = ch;
-  if (ch == '\n' || text_col_ >= text_cols_) {
-    text_col_ = 0;
-    ++text_row_;
+  {
+    if (ch == '\n' || text_col_ >= text_cols_) {
+      text_[text_row_][text_col_] = '\0';
+      text_col_ = 0;
+      text_row_ = (text_row_ + 1) % text_rows_;
+    }
+    if (ch != '\n') text_[text_row_][text_col_++] = ch;
   }
 }
 
