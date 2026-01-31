@@ -1,4 +1,5 @@
 #include <diagnostics/storage_scan.h>
+#include <recovery_ui/screen_ui.h>
 
 #include <string.h>
 
@@ -375,40 +376,25 @@ static void do_scan_storage(RecoveryUI* ui, void* read_dst) {
                         (total_mb_read/total_time_reading));
 }
 
+class CustomScreen : public ScreenRecoveryUI
+{
+  friend size_t get_text_rows_(CustomScreen*);
+};
+
+size_t get_text_rows_(CustomScreen* cs)
+{
+  return cs->text_rows_;
+}
+
 void scan_storage(RecoveryUI* ui) {
-  // void* read_dst;
 
-  // ui->ClearText();
+  CustomScreen* cs = static_cast<CustomScreen*>(ui);
 
-  // ui->PrintOnScreenOnly("Scanning block devices in %s for bad sectors\n"
-  //                       "\n\nHold volume down to cancel\n\n", BLKDEV_DIR);
-
-  // /* mmap here to properly align the buffer for faster writes */
-  // read_dst = mmap(0, READSZ, PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
-  // if (read_dst == MAP_FAILED) {
-  //   ui->PrintOnScreenOnly("Could not allocate space to dump the "
-  //                         "read bytes into (errno: %d, %s)\n", errno,
-  //                         strerror(errno));
-  //   return;
-  // }
-
-  // do_scan_storage(ui, read_dst);
-
-  // ScreenRecoveryUI* screen_ui = static_cast<ScreenRecoveryUI*>(ui);
-  /*
-   * text_rows_ is a protected member of ScreenRecoveryUI, so it can't
-   * be accessed without adding a method to the class
-   *
-   * I believe 64 to be enough for the 6a, but made the limit 80 just
-   * in case
-   */
-  for (int x = 0; x < 70; x++)
-  {
-    // ui->PutChar(x);
-    // ui->PutChar('\n');
-    ui->PrintOnScreenOnly("%d\n", x);
-  }
-  ui->PrintOnScreenOnly("About to do something very bad");
-  ui->PutChar('\n');
+  // int target = 70;
+  // ui->PrintOnScreenOnly("Running test!");
+  // after target newlines the text_row_ variable points outside the
+  // array
+  for (int x = 0; x < get_text_rows_(cs); x++)
+    ui->PutChar('\n');
   ui->PrintOnScreenOnly("I never get printed out");
 }
