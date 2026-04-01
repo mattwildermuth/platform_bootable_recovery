@@ -57,6 +57,7 @@
 #include "recovery_utils/battery_utils.h"
 #include "recovery_utils/logging.h"
 #include "recovery_utils/roots.h"
+#include "diagnostics/storage_scan.h"
 
 static constexpr const char* COMMAND_FILE = "/cache/recovery/command";
 static constexpr const char* LAST_KMSG_FILE = "/cache/recovery/last_kmsg";
@@ -522,6 +523,10 @@ static Device::BuiltinAction PromptAndWait(Device* device, InstallResult status)
 
       case Device::VIEW_RECOVERY_LOGS:
         choose_recovery_file(device);
+        break;
+
+      case Device::STORAGE_SCAN:
+        scan_storage(ui);
         break;
 
       case Device::RUN_GRAPHICS_TEST:
